@@ -1,0 +1,9 @@
+node_modules/
+dist/
+datasets/*.jsonl
+datasets/*.json
+datasets/*.zip
+.DS_Store
+*.tgz
+.env
+.claude/

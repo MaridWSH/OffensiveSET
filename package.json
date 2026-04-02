@@ -1,0 +1,42 @@
+{
+  "name": "offensiveset",
+  "version": "2.0.0",
+  "description": "MCP server for generating high-quality offensive security datasets for LLM fine-tuning. Produces realistic multi-turn pentesting conversations with tool calls, reasoning chains, and professional reports.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "offensiveset": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "rebuild": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "security",
+    "dataset",
+    "pentesting",
+    "offensive-security",
+    "fine-tuning",
+    "qwen",
+    "llm",
+    "sharegpt",
+    "chatml"
+  ],
+  "author": "secfathy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/secfathy/OffensiveSET"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.0"
+  }
+}
