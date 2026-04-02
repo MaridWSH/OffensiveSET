@@ -50,50 +50,43 @@ OffensiveSET generates realistic penetration testing conversations in ShareGPT/C
 
 ## Quick Start
 
-### Install
+### Install & Setup
 
 ```bash
-git clone https://github.com/secfathy/OffensiveSET.git
+git clone https://github.com/PentesterFlow/OffensiveSET.git
 cd OffensiveSET
 npm install
 npm run build
 ```
 
-### Setup with Claude Code (CLI)
-
-The fastest way — one command:
+### Claude Code (CLI) — Quickest Setup
 
 ```bash
-claude mcp add offensiveset node /absolute/path/to/OffensiveSET/dist/index.js
-```
+# Add the MCP server (run from inside the cloned repo)
+claude mcp add offensiveset node $(pwd)/dist/index.js
 
-Verify it's registered:
-
-```bash
+# Verify
 claude mcp list
-```
 
-Now start Claude Code and the OffensiveSET tools are available:
-
-```bash
+# Start using it
 claude
 ```
 
-### Setup with Claude Desktop (GUI)
+### Claude Desktop (GUI)
 
-Open your Claude Desktop MCP config file:
+Open your MCP config file:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Add OffensiveSET:
+Add this block (update the path to where you cloned the repo):
 
 ```json
 {
   "mcpServers": {
     "offensiveset": {
       "command": "node",
-      "args": ["/absolute/path/to/OffensiveSET/dist/index.js"]
+      "args": ["/Users/YOUR_USER/OffensiveSET/dist/index.js"]
     }
   }
 }
@@ -101,26 +94,30 @@ Add OffensiveSET:
 
 Restart Claude Desktop. The 10 OffensiveSET tools will appear in the tools menu.
 
-### Setup with VS Code / JetBrains (Claude Code Extension)
-
-Open the Claude Code extension settings and add the MCP server:
+### VS Code / JetBrains (Claude Code Extension)
 
 ```bash
-# In the integrated terminal
-claude mcp add offensiveset node /absolute/path/to/OffensiveSET/dist/index.js
+# From the integrated terminal
+claude mcp add offensiveset node /path/to/OffensiveSET/dist/index.js
 ```
 
-Or add it to your project's `.mcp.json`:
+Or add a `.mcp.json` to your project root:
 
 ```json
 {
   "mcpServers": {
     "offensiveset": {
       "command": "node",
-      "args": ["/absolute/path/to/OffensiveSET/dist/index.js"]
+      "args": ["/path/to/OffensiveSET/dist/index.js"]
     }
   }
 }
+```
+
+### One-Line Install (Clone + Build + Register)
+
+```bash
+git clone https://github.com/PentesterFlow/OffensiveSET.git && cd OffensiveSET && npm install && npm run build && claude mcp add offensiveset node $(pwd)/dist/index.js
 ```
 
 ### Generate a Dataset
