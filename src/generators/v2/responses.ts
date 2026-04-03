@@ -1,58 +1,91 @@
-// Response generation functions for Dataset Generator V2
+// Response generation for Dataset Generator V2 — smart contract security context
 
-import { SeededRNG, TargetProfile } from "../outputs/index.js";
+import { SeededRNG, ContractProfile } from "../outputs/index.js";
 import { AttackPhase } from "../../templates/scenarios/index.js";
 
-// FIX #12: Comprehensive target.com replacement — catch ALL variants
-export function variateText(text: string, domain: string, profile: TargetProfile): string {
+// ============================================================
+// Text Variation — replaces web-specific patterns with smart contract patterns
+// ============================================================
+
+export function variateText(text: string, protocolName: string, profile: ContractProfile): string {
+  const chainName = getChainName(profile.chainId);
+  const contractAddr = profile.contractAddress;
+  const tokenName = profile.affectedToken;
+  const solidityVer = profile.solidityVersion;
+
   return text
-    // Specific subdomains first (before generic target.com)
-    .replace(/shop\.target\.com/g, `shop.${domain}`)
-    .replace(/api\.target\.com/g, `api.${domain}`)
-    .replace(/admin\.target\.com/g, `admin.${domain}`)
-    .replace(/corp\.target\.com/g, `corp.${domain}`)
-    .replace(/cloud-app\.target\.com/g, `cloud.${domain}`)
-    .replace(/webapp\.target\.com/g, `app.${domain}`)
-    .replace(/app\.target\.com/g, `app.${domain}`)
-    .replace(/forum\.target\.com/g, `forum.${domain}`)
-    .replace(/enterprise\.target\.com/g, `enterprise.${domain}`)
-    .replace(/bank\.target\.com/g, `bank.${domain}`)
-    .replace(/jobs\.target\.com/g, `jobs.${domain}`)
-    .replace(/store\.target\.com/g, `store.${domain}`)
-    .replace(/trade\.target\.com/g, `trade.${domain}`)
-    .replace(/www\.target\.com/g, `www.${domain}`)
-    .replace(/ws\.target\.com/g, `ws.${domain}`)
-    .replace(/hr-api\.target\.com/g, `hr-api.${domain}`)
-    .replace(/saas-api\.target\.com/g, `saas-api.${domain}`)
-    .replace(/mobile-api\.target\.com/g, `mobile-api.${domain}`)
-    .replace(/auth\.target\.com/g, `auth.${domain}`)
-    // Generic catch-all LAST
-    .replace(/[\w-]*\.?target\.com/g, domain)
-    // IPs
-    .replace(/10\.10\.10\.1/g, profile.ip)
-    .replace(/10\.0\.1\.50/g, profile.ip)
-    .replace(/192\.168\.1\.\d+/g, profile.ip)
-    .replace(/192\.168\.100\.\d+/g, profile.ip)
-    .replace(/172\.16\.0\.\d+/g, profile.ip)
-    // Database names
-    .replace(/PostgreSQL/g, profile.databases.name)
-    .replace(/postgresql/g, profile.databases.name.toLowerCase());
+    // Protocol / domain replacements
+    .replace(/target\.com/g, protocolName.toLowerCase().replace(/\s+/g, ""))
+    .replace(/shop\.target\.com/g, `app.${protocolName.toLowerCase().replace(/\s+/g, "")}`)
+    .replace(/api\.target\.com/g, `api.${protocolName.toLowerCase().replace(/\s+/g, "")}`)
+    .replace(/admin\.target\.com/g, `admin.${protocolName.toLowerCase().replace(/\s+/g, "")}`)
+    .replace(/www\.target\.com/g, `app.${protocolName.toLowerCase().replace(/\s+/g, "")}`)
+    // Web endpoint to function references
+    .replace(/\/api\/v1\/users/g, `function ${profile.externalFunctions[0]?.name || "stake"}()`)
+    .replace(/\/api\/search/g, `function ${profile.externalFunctions[1]?.name || "withdraw"}()`)
+    .replace(/\/api\/data/g, `function ${profile.externalFunctions[0]?.name || "claim"}()`)
+    .replace(/\/api\/query/g, `function ${profile.externalFunctions[2]?.name || "poke"}()`)
+    .replace(/\/api\/orders/g, "function execute()")
+    .replace(/\/api\/products/g, "function liquidate()")
+    .replace(/\/api\/settings/g, "function setFeeRate()")
+    .replace(/\/api\/admin/g, "function setOwner()")
+    .replace(/\/api\/reports/g, "function getReserves()")
+    .replace(/\/api\/transactions/g, "function bridge()")
+    .replace(/\/api\/auth\/login/g, "function initialize()")
+    // IP addresses to contract addresses
+    .replace(/10\.10\.10\.1/g, contractAddr)
+    .replace(/10\.0\.1\.50/g, contractAddr)
+    .replace(/192\.168\.1\.\d+/g, contractAddr)
+    .replace(/192\.168\.100\.\d+/g, contractAddr)
+    .replace(/172\.16\.0\.\d+/g, contractAddr)
+    // Database names to token / protocol names
+    .replace(/PostgreSQL/g, tokenName)
+    .replace(/postgresql/g, tokenName.toLowerCase())
+    .replace(/MySQL/g, profile.protocolName)
+    .replace(/mysql/g, profile.protocolName.toLowerCase())
+    .replace(/MongoDB/g, profile.stateVariables[0]?.name || "totalSupply")
+    .replace(/Redis/g, profile.stateVariables[1]?.name || "balances")
+    // Tech headers / frameworks to Solidity / chain context
+    .replace(/nginx/g, `${chainName} node`)
+    .replace(/apache/g, `Solidity ${solidityVer}`)
+    .replace(/tomcat/g, `Hardhat / Foundry`)
+    // CWE references — replace with SC-relevant SWC IDs
+    .replace(/CWE-89/g, "SWC-101")
+    .replace(/CWE-79/g, "SWC-103")
+    .replace(/CWE-918/g, "SWC-114")
+    .replace(/CWE-639/g, "SWC-115")
+    .replace(/CWE-94/g, "SWC-106")
+    .replace(/CWE-502/g, "SWC-119")
+    .replace(/CWE-287/g, "SWC-105");
 }
 
-// FIX #2 + #4 + #7: Grounded Response Generator
-// - Varies format (no always-## headers)
-// - Grounds analysis in tool output data
-// - Longer responses when thinking is present
+// Helper — chain name from chainId
+function getChainName(chainId: number): string {
+  const chains: Record<number, string> = {
+    1: "Ethereum",
+    42161: "Arbitrum",
+    10: "Optimism",
+    8453: "Base",
+    137: "Polygon",
+    56: "BNB Chain",
+  };
+  return chains[chainId] || "Ethereum";
+}
+
+// ============================================================
+// Grounded Response Generator
+// Generates assistant responses grounded in tool output data
+// ============================================================
+
 export function generateGroundedResponse(
   rng: SeededRNG,
   phase: AttackPhase,
-  profile: TargetProfile,
-  domain: string,
+  profile: ContractProfile,
   isFailure: boolean,
   toolOutputSummary: string,
-  hasThinking: boolean
+  includeThinking: boolean
 ): string {
-  // FIX #2: 40% with headers, 60% without — natural conversation
+  // 40% with headers, 60% without — natural conversation variation
   const useHeader = rng.bool(0.4);
   let response = "";
 
@@ -65,349 +98,514 @@ export function generateGroundedResponse(
     ]);
   }
 
-  // FIX #7: Build opening that references ACTUAL tool output
-  const opening = generateAnalysisResponse(rng, phase, profile, domain, isFailure);
+  // Build opening that references actual tool output
+  const opening = generateAnalysisResponse(rng, phase, profile, isFailure);
 
-  // FIX #7: Add grounding paragraph that references tool output data
+  // Add grounding paragraph that references tool output data
   let grounding = "";
   if (toolOutputSummary.length > 20 && rng.bool(0.7)) {
-    // Extract key details from tool output to reference
-    const portMatch = toolOutputSummary.match(/\b(\d{2,5})\/tcp\b/);
-    const statusMatch = toolOutputSummary.match(/\b(200|301|302|403|404|500)\b/);
-    const serviceMatch = toolOutputSummary.match(/\b(nginx|apache|mysql|postgresql|redis|ssh|http|tomcat)\b/i);
-    const versionMatch = toolOutputSummary.match(/\b(\d+\.\d+\.\d+)\b/);
-
     const refs: string[] = [];
-    if (portMatch) refs.push(`port ${portMatch[1]}`);
-    if (statusMatch) refs.push(`HTTP ${statusMatch[1]} response`);
-    if (serviceMatch) refs.push(`${serviceMatch[1]} service`);
-    if (versionMatch) refs.push(`version ${versionMatch[1]}`);
+
+    // SC-specific extraction patterns
+    const selectorMatch = toolOutputSummary.match(/0x([0-9a-f]{8})\b/i);
+    const gasMatch = toolOutputSummary.match(/\bgas[=:\s]+(\d{4,})\b/i);
+    const revertMatch = toolOutputSummary.match(/revert(ed)?[:\s]+(.{5,60})/i);
+    const funcMatch = toolOutputSummary.match(/function\s+(\w+)/i);
+    const lineMatch = toolOutputSummary.match(/line[=:\s]+(\d+)/i);
+    const severityMatch = toolOutputSummary.match(/\b(critical|high|medium|low|informational)\b/i);
+    const detectorMatch = toolOutputSummary.match(/\b(\w+Detector|optimization|informational)\b/i);
+
+    if (selectorMatch) refs.push(`selector 0x${selectorMatch[1]}`);
+    if (gasMatch) refs.push(`gas usage of ${gasMatch[1]}`);
+    if (revertMatch) refs.push(`revert: "${revertMatch[2].trim()}"`);
+    if (funcMatch) refs.push(`function ${funcMatch[1]}`);
+    if (lineMatch) refs.push(`line ${lineMatch[1]}`);
+    if (severityMatch) refs.push(`${severityMatch[1].toLowerCase()} severity detector`);
+    if (detectorMatch) refs.push(`${detectorMatch[1]} finding`);
 
     if (refs.length > 0) {
       grounding = `\n\nSpecifically, the tool output shows ${refs.join(", ")} — ${rng.pick([
-        "this confirms my initial assessment",
-        "this is consistent with the vulnerability pattern",
-        "this narrows down the attack vector",
-        "this gives me a concrete target for the next test",
-        "this data is key evidence for the report",
-        "I can use this to craft a more targeted payload",
+        "this confirms my initial assessment of the vulnerability pattern",
+        "this is consistent with the attack vector I identified",
+        "this narrows down the exact code path affected",
+        "this gives me a concrete target for the PoC test",
+        "this data is key evidence for the audit report",
+        "I can use this to craft a more targeted exploit",
+        "this aligns with the expected behavior for this vulnerability class",
       ])}.`;
     }
   }
 
-  // FIX #3: For failure/soft-fail, include explicit "not vulnerable" language
+  // For failure/soft-fail, include explicit "not vulnerable" language
   let failureNote = "";
   if (isFailure) {
     failureNote = `\n\n${rng.pick([
-      "**Result: Not vulnerable.** The endpoint properly handles this attack class.",
-      "This parameter appears to be safely handled. The application is not vulnerable to this specific technique.",
-      "**Negative result** — the target's defenses are effective here. Moving on to alternative approaches.",
-      "No exploitable behavior detected. The input validation is working correctly on this endpoint.",
-      "The test confirms this endpoint is **not vulnerable** to this attack. I'll document this as a positive defense.",
+      "**Result: Not vulnerable.** The function properly handles this attack class.",
+      "This code path appears to be safely implemented. The contract is not vulnerable to this specific technique.",
+      "**Negative result** — the contract's defenses are effective here. Moving on to alternative approaches.",
+      "No exploitable behavior detected. The input validation is working correctly on this function.",
+      "The test confirms this function is **not vulnerable** to this attack. I'll document this as a positive defense.",
       "After thorough testing, I can confirm this specific vector is blocked. The security control is effective.",
     ])}`;
   }
 
-  // FIX #4: Longer response when thinking is present (thinking should produce deeper analysis)
+  // Longer response when thinking is present (thinking should produce deeper analysis)
   let deeperAnalysis = "";
-  if (hasThinking && !isFailure && rng.bool(0.6)) {
+  if (includeThinking && !isFailure && rng.bool(0.6)) {
+    const funcName = rng.pick(profile.externalFunctions).name;
+    const stateVar = rng.pick(profile.stateVariables);
     deeperAnalysis = `\n\n${rng.pick([
-      `**Technical depth:** The root cause is that the ${rng.pick(profile.technologies)} application ${rng.pick(["passes user input directly to " + profile.databases.name + " without parameterization", "uses string concatenation in the template rendering context", "trusts client-supplied data for authorization decisions", "fails to validate the URL scheme before making server-side requests", "accepts unsigned tokens without algorithm verification"])}. The fix requires changes at the ${rng.pick(["data access layer", "middleware level", "controller logic", "framework configuration", "authentication pipeline"])}.`,
-      `**Exploitation path:** From this finding, the attack chain is: ${rng.pick(profile.injectableParams)} injection → ${rng.pick(["data extraction", "authentication bypass", "privilege escalation", "internal network access", "code execution"])} → ${rng.pick(["full database dump", "admin account takeover", "server compromise", "cloud credential theft", "lateral movement to internal services"])}. Each step increases the severity.`,
-      `**Scope assessment:** This isn't isolated to one endpoint. The ${rng.pick(profile.technologies)} codebase likely has ${rng.int(3, 15)} other endpoints using the same vulnerable pattern because they share ${rng.pick(["the same data access function", "a common middleware", "the same ORM configuration", "a base controller class"])}. I should test ${rng.pickN(profile.injectableParams, 2).join(" and ")} on other endpoints too.`,
+      `**Technical depth:** The root cause is that the \`${funcName}()\` function ${rng.pick([
+        `updates \`${stateVar.name}\` after making an external call, enabling reentrancy`,
+        `does not validate the \`msg.sender\` against the authorized role before executing critical logic`,
+        `uses a stale price from the oracle without checking the staleness threshold`,
+        `trusts user-supplied values for calculating shares without rounding in favor of the protocol`,
+        `fails to enforce a lock or timelock before allowing privileged state changes`,
+        `performs a low-level call without checking the return value`,
+      ])}. The fix requires changes at the ${rng.pick(["function-level validation", "state update ordering", "oracle integration layer", "access control modifier", "reentrancy guard"])} level.`,
+      `**Exploitation path:** From this finding, the attack chain is: call \`${funcName}()\` with crafted arguments → ${rng.pick([
+        "drain funds from the contract",
+        "mint unlimited tokens",
+        "bypass access controls to call admin functions",
+        "manipulate the internal accounting to withdraw more than deposited",
+        "trigger a griefing attack that locks user funds",
+        "front-run the transaction to extract MEV",
+      ])} → ${rng.pick([
+        "full contract drain",
+        "governance takeover via token minting",
+        "permanent denial of service for other users",
+        "cross-protocol contagion via price oracle manipulation",
+        "complete loss of protocol solvency",
+      ])}. Each step increases the severity.`,
+      `**Scope assessment:** This isn't isolated to \`${funcName}()\`. The ${profile.inheritanceChain[0] || "base contract"} likely has ${rng.int(2, 8)} other functions using the same vulnerable pattern because they share ${rng.pick([
+        "the same internal _updateBalance helper",
+        "a common modifier that doesn't cover this edge case",
+        "the same oracle price fetch pattern",
+        "an inherited access control pattern from " + (profile.inheritanceChain[0] || "Ownable"),
+      ])}. I should test ${rng.pickN(profile.externalFunctions.map(f => f.name), 2).join(" and ")} as well.`,
     ])}`;
   }
 
   return `${response}${opening}${grounding}${failureNote}${deeperAnalysis}`;
 }
 
-// Response Variation Engine (opening sentence generator)
-export function generateAnalysisResponse(
+// ============================================================
+// Analysis Response Builder
+// ============================================================
+
+function generateAnalysisResponse(
   rng: SeededRNG,
   phase: AttackPhase,
-  profile: TargetProfile,
-  domain: string,
+  profile: ContractProfile,
   isFailure: boolean
 ): string {
-  // Dynamic header — combine phase name with unique framing
+  const funcName = rng.pick(profile.externalFunctions).name;
+  const stateVar = rng.pick(profile.stateVariables);
+  const solidityVer = profile.solidityVersion;
+  const chainName = getChainName(profile.chainId);
+  const toolName = rng.pick(phase.tools);
+  const payloadCount = rng.int(3, 50);
+  const gasUsed = rng.int(50000, 2000000);
+  const blockNum = rng.int(19000000, 20500000);
+
   const headerStyles = [
     `## ${phase.phase}\n\n${phase.description}`,
     `### ${phase.phase}\n\nObjective: ${phase.description}`,
     `**Phase: ${phase.phase}**\n\nGoal: ${phase.description}`,
-    `## ${phase.phase} — ${rng.pick(profile.technologies)} Target Analysis`,
-    `### ${phase.phase} on ${domain}`,
+    `## ${phase.phase} — ${profile.contractName} (${profile.protocolName})`,
+    `### ${phase.phase} on ${profile.protocolName}'s ${profile.contractName}`,
     `## ${rng.pick(["Executing", "Running", "Performing", "Conducting", "Initiating"])} ${phase.phase}`,
     `### ${phase.phase} — ${rng.pick(["Results and Analysis", "Findings Summary", "Assessment Results", "Testing Output"])}`,
-    `## ${phase.phase}\n\nTarget: ${domain} (${profile.technologies.join("/")}, ${profile.databases.name})`,
+    `## ${phase.phase}\n\nTarget: ${profile.contractName} at ${profile.contractAddress} (${chainName}, Solidity ${solidityVer})`,
   ];
-
-  // Construct UNIQUE opening sentences from random parts — no two are alike
-  const techStr = rng.pick(profile.technologies);
-  const dbStr = profile.databases.name;
-  const paramStr = rng.pick(profile.injectableParams);
-  const portStr = String(rng.pick(profile.openPorts));
-  const subStr = rng.pick(profile.subdomains);
-  const toolStr = rng.pick(phase.tools);
-  const payloadCount = rng.int(3, 50);
-  const responseTime = rng.int(12, 4500);
-  const statusCode = rng.pick([200, 301, 302, 400, 403, 404, 500, 502, 503]);
-  const errorDetail = rng.pick([
-    "a stack trace exposing internal paths",
-    `a ${dbStr} syntax error in the response body`,
-    "an unhandled exception with debug info",
-    "a verbose error revealing the query structure",
-    "differential response lengths between payloads",
-    "a timing discrepancy of " + rng.int(200, 3000) + "ms",
-    "reflected input without encoding",
-    `a ${statusCode} status with a ${rng.int(200, 9000)}-byte body`,
-    "a JSON error object containing internal service names",
-    "base64-encoded debug output in a response header",
-  ]);
-
-  // FULLY DYNAMIC opening sentence construction — every sentence is unique
-  // by combining 3 independent sentence fragments from large pools
-  const param2 = rng.pick(profile.injectableParams.filter(p => p !== paramStr) || profile.injectableParams);
 
   let opening: string;
   if (!isFailure) {
-    // Fragment A: How the test was conducted (40 options)
+    // Fragment A: How the test was conducted
     const fragA = rng.pick([
-      `${toolStr} against ${subStr}.${domain}:${portStr}`,
-      `sending ${payloadCount} payloads to \`${paramStr}\` on ${subStr}.${domain}`,
-      `my ${toolStr} scan of ${domain}:${portStr} (${responseTime}ms)`,
-      `probing the ${techStr} endpoint at ${subStr}.${domain}`,
-      `testing the \`${paramStr}\` parameter on port ${portStr} of ${domain}`,
-      `a targeted ${toolStr} assessment of ${subStr}.${domain}`,
-      `fuzzing \`${paramStr}\` and \`${param2}\` on ${domain}:${portStr}`,
-      `analyzing ${payloadCount} HTTP responses from ${subStr}.${domain}`,
-      `${toolStr} enumeration of the ${techStr}/${dbStr} stack on ${domain}`,
-      `the ${toolStr} probe of ${subStr}.${domain}:${portStr} (${payloadCount} requests)`,
-      `manual testing of \`${paramStr}\` on ${subStr}.${domain} via ${toolStr}`,
-      `a ${responseTime}ms ${toolStr} sweep across ${domain}:${portStr}`,
-      `comparing baseline vs injected responses on ${subStr}.${domain}`,
-      `injecting ${payloadCount} variants into \`${paramStr}\` at ${domain}:${portStr}`,
-      `the ${payloadCount}-request ${toolStr} barrage against ${subStr}.${domain}`,
-      `fingerprinting ${domain}:${portStr} and then targeting \`${paramStr}\``,
-      `piping ${toolStr} output through custom filters on ${subStr}.${domain}`,
-      `a time-based analysis of \`${paramStr}\` on ${domain}:${portStr}`,
-      `${toolStr} with ${payloadCount} crafted payloads against ${subStr}.${domain}`,
-      `probing both \`${paramStr}\` and \`${param2}\` endpoints on ${domain}`,
-      `a differential analysis between normal and malicious input to ${subStr}.${domain}:${portStr}`,
-      `the ${techStr} application's \`${paramStr}\` handler on ${domain}`,
-      `${payloadCount} mutation tests via ${toolStr} against ${subStr}.${domain}`,
-      `sequential testing of ${domain}:${portStr} parameters starting with \`${paramStr}\``,
-      `${toolStr} running at ${rng.int(50, 200)} requests/sec against ${subStr}.${domain}`,
-      `targeting the ${dbStr}-backed \`${paramStr}\` endpoint on ${domain}`,
-      `a ${rng.pick(["comprehensive", "systematic", "focused", "thorough", "methodical"])} ${toolStr} assessment of ${subStr}.${domain}:${portStr}`,
-      `cross-endpoint testing of \`${paramStr}\` across ${domain} subdomains`,
-      `the initial ${toolStr} reconnaissance of ${subStr}.${domain}`,
-      `correlating ${toolStr} findings with the ${techStr} version on port ${portStr}`,
+      `${toolName} analysis of ${profile.contractName} on ${chainName}`,
+      `sending ${payloadCount} crafted calldata sequences to \`${funcName}()\``,
+      `my ${toolName} scan of ${profile.contractAddress} (gas: ${gasUsed})`,
+      `probing the \`${funcName}()\` function in ${profile.contractName} on ${chainName}`,
+      `testing the \`${stateVar.name}\` state variable interaction via \`${funcName}()\``,
+      `a targeted ${toolName} assessment of the ${profile.protocolName} contract`,
+      `fuzzing \`${funcName}()\` and adjacent functions with ${payloadCount} test cases`,
+      `analyzing ${payloadCount} transaction traces on ${chainName} at block ${blockNum}`,
+      `${toolName} enumeration of the ${profile.contractName} (${profile.inheritanceChain.join(" → ")}) stack`,
+      `the ${toolName} probe of ${profile.contractAddress} (${payloadCount} calls, ${gasUsed} gas)`,
+      `manual testing of \`${funcName}()\` on ${chainName} via ${toolName}`,
+      `a ${gasUsed}-gas ${toolName} sweep across the ${profile.protocolName} protocol`,
+      `comparing baseline vs malicious calls to \`${funcName}()\``,
+      `injecting ${payloadCount} variants into \`${funcName}()\` on ${profile.contractAddress}`,
+      `the ${payloadCount}-call ${toolName} barrage against ${profile.contractName}`,
+      `fingerprinting ${profile.contractAddress} and then targeting \`${funcName}()\``,
+      `piping ${toolName} output through custom Foundry assertions on ${profile.contractName}`,
+      `a time-based analysis of \`${funcName}()\` across ${rng.int(5, 20)} blocks`,
+      `${toolName} with ${payloadCount} crafted payloads against ${profile.contractName}`,
+      `probing both \`${funcName}()\` and \`${rng.pick(profile.externalFunctions.filter(f => f.name !== funcName)).name}()\``,
+      `a differential analysis between normal and malicious calls to ${profile.contractName}:${funcName}`,
+      `the ${profile.contractName} contract's \`${funcName}()\` handler on ${chainName}`,
+      `${payloadCount} mutation tests via ${toolName} against ${profile.contractName}`,
+      `sequential testing of ${profile.contractAddress} functions starting with \`${funcName}()\``,
+      `${toolName} running at ${rng.int(10, 200)} calls/sec against ${profile.contractName}`,
+      `targeting the ${stateVar.type} \`${stateVar.name}\` variable via \`${funcName}()\``,
+      `a ${rng.pick(["comprehensive", "systematic", "focused", "thorough", "methodical"])} ${toolName} assessment of ${profile.contractName}`,
+      `cross-function testing of \`${funcName}()\` across ${profile.contractName} interfaces`,
+      `the initial ${toolName} reconnaissance of ${profile.contractName}`,
+      `correlating ${toolName} findings with the Solidity ${solidityVer} compilation output`,
     ]);
 
-    // Fragment B: What was observed (30 options)
+    // Fragment B: What was observed
+    const vulnDetail = rng.pick([
+      "a state change inconsistent with the expected invariant",
+      `a reentrancy opportunity through the \`${funcName}()\` external call`,
+      "an unauthorized state modification without proper access control",
+      `a rounding error in the share calculation that benefits the caller`,
+      "a price manipulation vector via the oracle integration",
+      `an integer overflow in the \`${stateVar.name}\` update path`,
+      "a signature replay vulnerability in the permit flow",
+      `a storage collision with the upgradeable proxy slot`,
+      "an unchecked return value from a low-level call",
+      "a missing zero-address check allowing fund lock",
+    ]);
+
     const fragB = rng.pick([
-      `revealed ${errorDetail}`,
-      `confirmed the \`${paramStr}\` parameter is injectable`,
-      `produced ${errorDetail} in ${responseTime}ms`,
-      `triggered ${statusCode} responses with ${errorDetail}`,
-      `exposed a clear ${dbStr} interaction vulnerability`,
-      `showed the ${techStr} backend fails to sanitize \`${paramStr}\``,
-      `returned ${errorDetail} across ${payloadCount} test cases`,
-      `detected unsanitized input reaching the ${dbStr} query layer`,
-      `flagged ${errorDetail} on the \`${paramStr}\` handler`,
-      `demonstrated that \`${paramStr}\` is passed directly to ${dbStr}`,
-      `immediately highlighted ${errorDetail}`,
-      `uncovered ${errorDetail} — a strong positive signal`,
-      `yielded ${payloadCount} anomalous responses showing ${errorDetail}`,
-      `proved the \`${paramStr}\` endpoint lacks proper input validation`,
-      `exposed the ${techStr} application's failure to encode \`${paramStr}\``,
-      `confirmed exploitability with ${errorDetail}`,
-      `produced definitive evidence: ${errorDetail}`,
-      `pinpointed ${errorDetail} on the ${dbStr}-backed endpoint`,
-      `showed a ${rng.int(50, 3000)}-byte response differential between normal and injected input`,
-      `found that ${rng.int(60, 95)}% of payloads bypassed the input filter`,
+      `revealed ${vulnDetail}`,
+      `confirmed the \`${funcName}()\` function is exploitable`,
+      `produced ${vulnDetail} consuming ${gasUsed} gas`,
+      `triggered ${rng.pick(["a revert with a revealing error message", "an unexpected state change", "a successful unauthorized call", "a balance manipulation"])} via \`${funcName}()\``,
+      `exposed a clear vulnerability in the ${profile.protocolName} protocol`,
+      `showed the ${solidityVer} contract fails to properly guard \`${funcName}()\``,
+      `returned ${payloadCount} anomalous traces showing ${vulnDetail}`,
+      `detected unsanitized input reaching the ${stateVar.name} update path`,
+      `flagged ${vulnDetail} in the \`${funcName}()\` handler`,
+      `demonstrated that \`${funcName}()\` can be called without ${rng.pick(["proper authorization", "the expected modifier", "valid input bounds", "the reentrancy lock"])}`,
+      `immediately highlighted ${vulnDetail}`,
+      `uncovered ${vulnDetail} — a strong positive signal`,
+      `yielded ${payloadCount} failing invariant tests showing ${vulnDetail}`,
+      `proved the \`${funcName}()\` endpoint lacks proper ${rng.pick(["access control", "input validation", "reentrancy protection", "oracle staleness check"])}`,
+      `exposed the ${profile.contractName} contract's failure to ${rng.pick(["check msg.sender", "enforce nonReentrant", "validate the oracle price", "round in protocol's favor"])}`,
+      `confirmed exploitability with ${vulnDetail}`,
+      `produced definitive evidence: ${vulnDetail}`,
+      `pinpointed ${vulnDetail} in the ${stateVar.name}-modifying function`,
+      `showed a ${rng.int(1, 50)}-unit state differential between normal and injected calls`,
+      `found that ${rng.int(60, 95)}% of payloads bypassed the expected guard`,
     ]);
 
-    // Fragment C: Conclusion/significance (20 options)
+    // Fragment C: Conclusion
     const fragC = rng.pick([
       `This confirms the vulnerability is real and exploitable.`,
-      `The ${techStr}/${dbStr} stack is clearly handling \`${paramStr}\` unsafely.`,
+      `The ${solidityVer} / ${profile.inheritanceChain.join(" / ")} stack is clearly handling \`${funcName}()\` unsafely.`,
       `This is a confirmed true positive requiring immediate remediation.`,
       `Exploitation is straightforward from this point.`,
-      `The finding affects all requests through this endpoint.`,
-      `This validates my initial hypothesis about the ${paramStr} injection point.`,
-      `The evidence is conclusive — this endpoint is vulnerable.`,
-      `I can reliably reproduce this across multiple request patterns.`,
-      `This is consistent with ${rng.pick(["CWE-89", "CWE-79", "CWE-918", "CWE-639", "CWE-94", "CWE-502", "CWE-287"])} exploitation.`,
-      `Further exploitation should yield ${rng.pick(["database access", "authentication bypass", "code execution", "data exfiltration", "privilege escalation"])}.`,
-      `The vulnerable code path is reachable by any ${rng.pick(["authenticated", "low-privilege", "unauthenticated"])} user.`,
+      `The finding affects all callers of this function on ${chainName}.`,
+      `This validates my initial hypothesis about the ${funcName} vulnerability.`,
+      `The evidence is conclusive — this function is vulnerable.`,
+      `I can reliably reproduce this across multiple transaction patterns.`,
+      `This is consistent with ${rng.pick(["SWC-101", "SWC-103", "SWC-105", "SWC-106", "SWC-107", "SWC-114", "SWC-115", "SWC-119"])} exploitation.`,
+      `Further exploitation should yield ${rng.pick(["fund drainage", "unauthorized minting", "governance takeover", "permanent DoS", "price manipulation"])}.`,
+      `The vulnerable code path is reachable by any ${rng.pick(["external caller", "token holder", "governance participant", "unauthenticated address"])}.`,
       `This warrants immediate testing for escalation potential.`,
       `Combined with the recon data, this opens several exploitation paths.`,
-      `I verified this is not a false positive by testing ${rng.int(3, 10)} payload variants.`,
-      `The ${techStr} framework's default configuration appears to lack protection here.`,
+      `I verified this is not a false positive by testing ${rng.int(3, 10)} call variants.`,
+      `The Solidity ${solidityVer} compiler's default behavior appears to lack protection here.`,
     ]);
 
-    opening = `${rng.pick(["After", "Running", "Based on", "Through", "Via", "Following", "During", "From", "With"])} ${fragA}, I ${rng.pick(["found that the results", "confirmed that the output", "observed that the response", "determined that the behavior", "noted that the results"])} ${fragB}. ${fragC}`;
+    opening = `${rng.pick(["After", "Running", "Based on", "Through", "Via", "Following", "During", "From", "With"])} ${fragA}, I ${rng.pick(["found that the results", "confirmed that the output", "observed that the trace", "determined that the behavior", "noted that the results"])} ${fragB}. ${fragC}`;
   } else {
-    // Build failure opening from starter + unique context fragments
-    const defenseType = rng.pick(["WAF", "input filter", "rate limiter", "security middleware", "validation layer", "parameterized query layer"]);
-    const defenseDetail = rng.pick([
-      `returned consistent ${statusCode} responses regardless of payload`,
-      `blocked ${payloadCount} of my test payloads within ${responseTime}ms`,
-      `stripped injection characters before they reached the ${dbStr} backend`,
-      `responded with generic error messages hiding implementation details`,
-      `enforced strict Content-Type validation on every request`,
-      `rate-limited my ${toolStr} scan after ${rng.int(3, 25)} requests`,
-      `showed identical response timing across all ${payloadCount} payloads`,
-      `rejected all non-alphanumeric input in the \`${paramStr}\` parameter`,
+    // Failure opening
+    const defenseType = rng.pick([
+      "reentrancy guard",
+      "access control modifier",
+      "input validation",
+      "oracle staleness check",
+      "signature verification",
+      "rate limiter",
+      "timelock enforcement",
     ]);
-    // Dynamic failure opening — same fragment construction approach
+    const defenseDetail = rng.pick([
+      `reverted all ${payloadCount} test calls consistently`,
+      `blocked ${payloadCount} of my crafted calldata sequences`,
+      `rejected unauthorized calls to \`${funcName}()\``,
+      `responded with proper revert messages hiding implementation details`,
+      `enforced strict access control on every call`,
+      `rate-limited my ${toolName} scan after ${rng.int(3, 25)} calls`,
+      `showed identical state outcomes across all ${payloadCount} payloads`,
+      `rejected all malformed input in the \`${funcName}()\` function`,
+    ]);
     const failFragA = rng.pick([
-      `${toolStr} against ${subStr}.${domain}:${portStr}`,
-      `sending ${payloadCount} payloads to \`${paramStr}\` on ${domain}`,
-      `my ${toolStr} assessment of ${subStr}.${domain}`,
-      `testing the \`${paramStr}\` parameter via ${toolStr} on port ${portStr}`,
-      `a ${payloadCount}-request ${toolStr} probe of ${domain}:${portStr}`,
-      `probing the ${techStr} endpoint at ${subStr}.${domain}:${portStr}`,
-      `fuzzing \`${paramStr}\` on ${subStr}.${domain} with ${toolStr}`,
-      `${toolStr} enumeration of ${domain}:${portStr} targeting \`${paramStr}\``,
+      `${toolName} against ${profile.contractName} on ${chainName}`,
+      `sending ${payloadCount} payloads to \`${funcName}()\` on ${profile.contractAddress}`,
+      `my ${toolName} assessment of ${profile.contractName}`,
+      `testing the \`${funcName}()\` function via ${toolName} with ${gasUsed} gas`,
+      `a ${payloadCount}-call ${toolName} probe of ${profile.contractAddress}`,
+      `probing the \`${funcName}()\` handler at ${profile.contractAddress}`,
+      `fuzzing \`${funcName}()\` on ${chainName} with ${toolName}`,
+      `${toolName} enumeration of ${profile.contractAddress} targeting \`${funcName}()\``,
     ]);
     const failFragB = rng.pick([
       `the ${defenseType} ${defenseDetail}`,
-      `a ${defenseType} blocked my payloads — it ${defenseDetail}`,
-      `the \`${paramStr}\` parameter proved resilient because the ${defenseType} ${defenseDetail}`,
-      `the ${techStr} application's ${defenseType} effectively ${defenseDetail}`,
-      `the endpoint's ${defenseType} on port ${portStr} ${defenseDetail}`,
+      `the \`${funcName}()\` function proved resilient because the ${defenseType} ${defenseDetail}`,
+      `the ${profile.contractName} contract's ${defenseType} effectively ${defenseDetail}`,
+      `the function's ${defenseType} on ${chainName} ${defenseDetail}`,
     ]);
     const failFragC = rng.pick([
       `This is a dead end for this specific technique — I need to pivot.`,
       `The ${defenseType} is effective, but there may be bypass methods I haven't tried.`,
-      `Good defense here, but I'll look for gaps in adjacent endpoints.`,
+      `Good defense here, but I'll look for gaps in adjacent functions.`,
       `This tells me the developers are security-aware — I need a more creative approach.`,
-      `The defense blocks this vector, but the error response reveals useful information about the ${defenseType} implementation.`,
-      `I'll document this as a positive finding for the client's security posture and try alternative techniques.`,
+      `The defense blocks this vector, but the revert reveals useful information about the ${defenseType} implementation.`,
+      `I'll document this as a positive finding for the protocol's security posture and try alternative techniques.`,
     ]);
     opening = `${rng.pick(["After", "Running", "Based on", "Through", "Via", "Following", "During", "From"])} ${failFragA}, I found that ${failFragB}. ${failFragC}`;
   }
 
-  // Generate body with inline exploit code when appropriate
+  // Generate body
   const body = isFailure
-    ? generateFailureAnalysis(rng, phase, profile, domain)
-    : generateSuccessAnalysis(rng, phase, profile, domain);
+    ? generateFailureAnalysis(rng, phase, profile)
+    : generateSuccessAnalysis(rng, phase, profile);
 
-  // Dynamic next steps — incorporate specific context
-  const nextAction = variateText(phase.next_action, domain, profile);
+  // Dynamic next steps
+  const nextAction = variateText(phase.next_action, profile.protocolName, profile);
   const nextStepFormats = [
     `**Next step:** ${nextAction}`,
     `**Moving forward:** Based on these results, I'll ${nextAction.charAt(0).toLowerCase() + nextAction.slice(1)}.`,
-    `**Action plan:** ${nextAction}. I'll also ${rng.pick(["check for related issues on adjacent endpoints", "verify the finding with an alternative technique", "look for ways to chain this with other findings", "document the evidence for the report"])}.`,
-    `**What I'll do next:** ${nextAction}. My hypothesis is that ${rng.pick(["the same pattern exists on other endpoints", "this can be escalated further", "combining this with the earlier finding will increase the severity", "the development team used the same vulnerable pattern elsewhere"])}.`,
+    `**Action plan:** ${nextAction}. I'll also ${rng.pick(["check for related issues on adjacent functions", "verify the finding with an alternative tool", "look for ways to chain this with other findings", "document the evidence for the audit report"])}.`,
+    `**What I'll do next:** ${nextAction}. My hypothesis is that ${rng.pick(["the same pattern exists in other functions", "this can be escalated further", "combining this with the earlier finding will increase severity", "the development team reused this vulnerable pattern in other contracts"])}.`,
     `**Recommended next action:** ${nextAction}`,
-    `I'll proceed to ${nextAction.charAt(0).toLowerCase() + nextAction.slice(1)}. Based on the ${rng.pick(profile.technologies)} architecture, ${rng.pick(["the most promising next target is the authentication endpoint", "I expect the API endpoints will share this vulnerability", "the internal services are likely reachable from here", "there may be additional data I can extract"])}.`,
+    `I'll proceed to ${nextAction.charAt(0).toLowerCase() + nextAction.slice(1)}. Based on the ${profile.inheritanceChain.join(" / ")} architecture, ${rng.pick(["the most promising next target is the admin function", "I expect the internal helpers will share this vulnerability", "the linked contracts are likely reachable from here", "there may be additional state I can manipulate"])}.`,
   ];
 
   return `${rng.pick(headerStyles)}\n\n${opening}\n\n${body}\n\n${rng.pick(nextStepFormats)}`;
 }
 
-export function generateSuccessAnalysis(rng: SeededRNG, phase: AttackPhase, profile: TargetProfile, domain: string): string {
-  const analysis = variateText(phase.analysis, domain, profile);
+// ============================================================
+// Success Analysis
+// ============================================================
+
+export function generateSuccessAnalysis(
+  rng: SeededRNG,
+  phase: AttackPhase,
+  profile: ContractProfile
+): string {
+  const funcName = rng.pick(profile.externalFunctions).name;
+  const stateVar = rng.pick(profile.stateVariables);
+  const solidityVer = profile.solidityVersion;
+  const chainName = getChainName(profile.chainId);
+
+  let analysis = phase.analysis
+    .replace(/\{contractName\}/g, profile.contractName)
+    .replace(/\{protocolName\}/g, profile.protocolName)
+    .replace(/\{funcName\}/g, funcName)
+    .replace(/\{stateVar\}/g, stateVar.name)
+    .replace(/\{solidityVersion\}/g, solidityVer)
+    .replace(/\{chainName\}/g, chainName)
+    .replace(/\{contractAddress\}/g, profile.contractAddress)
+    .replace(/\{tvl\}/g, profile.tvl)
+    .replace(/\{tokenPrice\}/g, profile.tokenPrice)
+    .replace(/\{affectedToken\}/g, profile.affectedToken)
+    .replace(/\{vulnType\}/g, profile.vulnType)
+    .replace(/\{severity\}/g, profile.severity);
 
   const extras: string[] = [];
 
-  // Hypothesis-driven reasoning (boosted to 60%+)
+  // Hypothesis-driven reasoning
   if (rng.bool(0.65)) {
-    const hypothesisBlocks = [
-      `\n\n**Hypothesis validation:** I initially hypothesized that the ${rng.pick(profile.injectableParams)} parameter would be vulnerable because ${rng.pick(["the error messages suggested unsanitized input reaches the backend", "the response timing varied with different payloads indicating server-side processing", "the application reflects user input without encoding in certain contexts", `${rng.pick(profile.technologies)} applications commonly have this issue when using default configurations`, "the API documentation mentioned this field is used in database queries"])}. The test results confirm this hypothesis — the parameter is indeed ${rng.pick(["injectable", "exploitable", "improperly validated", "passed directly to the backend without sanitization"])}.`,
-      `\n\n**Reasoning:** My hypothesis was that the ${rng.pick(profile.technologies)} application processes the ${rng.pick(profile.injectableParams)} parameter unsafely. Evidence supporting this:\n1. The response ${rng.pick(["changes predictably based on injected boolean conditions", "includes error details from the " + profile.databases.name + " backend", "timing correlates with payload complexity", "reflects injected content without encoding"])}\n2. The ${rng.pick(["error handling", "input validation", "authorization check", "output encoding"])} is ${rng.pick(["missing", "insufficient", "client-side only", "bypassable with encoding"])}\n3. This is consistent with ${rng.pick(["CWE-89 (SQL Injection)", "CWE-79 (Cross-site Scripting)", "CWE-918 (SSRF)", "CWE-639 (IDOR)", "CWE-94 (Code Injection)"])}`,
-      `\n\n**Analysis chain:** Observation → the ${rng.pick(profile.injectableParams)} parameter shows ${rng.pick(["differential responses", "error-based information disclosure", "timing variations", "reflected content"])}. Hypothesis → the input reaches a ${rng.pick(["database query", "template engine", "system command", "file operation", "URL fetch"])} without proper sanitization. Test → sent ${rng.int(3, 20)} targeted payloads. Conclusion → confirmed vulnerability with ${rng.pick(["boolean-based differential responses", "extracted data from the " + profile.databases.name + " backend", "demonstrated code execution", "accessed unauthorized resources", "bypassed access controls"])}.`,
-    ];
-    extras.push(rng.pick(hypothesisBlocks));
+    extras.push(
+      `\n\n**Hypothesis validation:** I initially hypothesized that \`${funcName}()\` would be vulnerable because ${rng.pick([
+        "the state transition logic suggested unchecked external calls",
+        "the gas pattern varied with different input sizes indicating non-standard computation",
+        "the contract reflects caller-supplied values in state without intermediate validation",
+        `Solidity ${solidityVer} contracts commonly have this issue when using unchecked blocks`,
+        "the interface documentation mentioned this function interacts with external oracles",
+      ])}. The test results confirm this hypothesis — the function is indeed ${rng.pick([
+        "exploitable via reentrancy",
+        "missing critical access control",
+        "susceptible to price manipulation",
+        "passing user values directly to the state update without bounds checking",
+      ])}.`,
+    );
   }
 
   // Technical context
   if (rng.bool(0.5)) {
-    extras.push(`\n\nThe ${rng.pick(profile.technologies)} stack with ${profile.databases.name} backend is relevant because ${rng.pick([
-      "this framework version has known issues with input sanitization in certain contexts",
-      "the default ORM configuration doesn't prevent all injection vectors",
-      "error handling in this stack tends to expose internal implementation details",
-      "the middleware chain can be bypassed using specific encoding techniques",
-      `${profile.databases.name} supports features that make exploitation easier once injection is confirmed`,
-      "the authentication mechanism in this framework has documented bypass techniques",
-      "the session management implementation has known timing side-channels",
-    ])}.`);
+    extras.push(
+      `\n\nThe ${profile.inheritanceChain.join(" / ")} inheritance chain is relevant because ${rng.pick([
+        `this inheritance pattern has known edge cases in how modifiers are applied during external calls`,
+        `the default access control in ${profile.inheritanceChain[0] || "Ownable"} doesn't cover all privileged paths`,
+        `error handling in this pattern tends to expose internal state on revert`,
+        `the modifier chain can be bypassed using specific call patterns`,
+        `${chainName}'s block structure makes this exploitable within a single transaction`,
+        `the upgradeable proxy pattern introduces additional storage slots that may collide`,
+      ])}.`,
+    );
   }
 
-  // Inline exploit code (boosted to 45%)
+  // Inline PoC code
   if (rng.bool(0.45)) {
-    const param = rng.pick(profile.injectableParams);
-    const exploitCodeBlocks = [
-      `\n\nI wrote a quick verification script to confirm the finding:\n\n\`\`\`python\nimport requests\n\ntarget = "https://${domain}/api/${rng.pick(["search", "users", "data", "query"])}"\nheaders = {"Authorization": "Bearer $TOKEN", "Content-Type": "application/json"}\n\n# Baseline request\nbaseline = requests.get(target, params={"${param}": "normal_value"}, headers=headers)\n\n# Injection test\ninjection = requests.get(target, params={"${param}": "${rng.pick(["' OR 1=1--", "{{7*7}}", "; id", "http://169.254.169.254/", "../../../etc/passwd"])}"}, headers=headers)\n\nprint(f"Baseline: {baseline.status_code} ({len(baseline.text)} bytes)")\nprint(f"Injection: {injection.status_code} ({len(injection.text)} bytes)")\n\nif baseline.status_code != injection.status_code or abs(len(baseline.text) - len(injection.text)) > 50:\n    print("[+] Differential response detected — likely vulnerable!")\nelse:\n    print("[-] Consistent responses — parameter may be safe")\n\`\`\`\n\nThe script confirmed the differential response.`,
+    const otherFunc = rng.pick(profile.externalFunctions.filter(f => f.name !== funcName) || profile.externalFunctions).name;
+    const exploitBlocks = [
+      `\n\nI wrote a quick Foundry PoC to confirm the finding:\n\n\`\`\`solidity\n// SPDX-License-Identifier: MIT\npragma solidity ^${solidityVer};\n\nimport "forge-std/Test.sol";\nimport "../src/${profile.contractName}.sol";\n\ncontract ${profile.contractName}_PoC is Test {\n    ${profile.contractName} public target;\n    address public attacker = address(0xdead);\n\n    function setUp() public {\n        target = new ${profile.contractName}();\n        vm.deal(attacker, ${rng.int(1, 100)} ether);\n        vm.prank(attacker);\n    }\n\n    function testExploit() public {\n        uint256 before = target.${stateVar.name}();\n        \n        // Exploit: call \`${funcName}()\` with crafted args\n        vm.prank(attacker);\n        target.${funcName}(${rng.int(0, 999)});\n        \n        uint256 after = target.${stateVar.name}();\n        assertGt(after, before, "State should change in attacker's favor");\n        \n        console.log("Before:", before);\n        console.log("After:", after);\n        console.log("Profit:", after - before);\n    }\n}\n\`\`\`\n\nThe test confirmed the invariant violation.`,
 
-      `\n\nTo automate the extraction, I wrote:\n\n\`\`\`bash\n#!/bin/bash\nTARGET="https://${domain}"\nTOKEN="$1"\n\n# Enumerate valid IDs via IDOR\nfor id in $(seq 1 100); do\n  status=$(curl -s -o /dev/null -w "%{http_code}" \\\n    -H "Authorization: Bearer $TOKEN" \\\n    "$TARGET/api/v1/users/$id")\n  if [ "$status" = "200" ]; then\n    echo "[+] Valid ID: $id"\n    curl -s -H "Authorization: Bearer $TOKEN" \\\n      "$TARGET/api/v1/users/$id" | jq '.email,.role'\n  fi\ndone\n\`\`\`\n\nThis enumerated ${rng.int(10, 200)} valid user records in under ${rng.int(5, 30)} seconds.`,
+      `\n\nTo automate the extraction, I wrote an Echidna property:\n\n\`\`\`solidity\n// Echidna invariant test\nfunction echidna_noUnlimitedMint() public view returns (bool) {\n    uint256 totalSupply = target.${stateVar.name}();\n    // ${profile.protocolName} should not allow minting beyond ${profile.tvl}\n    return totalSupply <= ${rng.int(1000, 100000)} ether;\n}\n\`\`\`\n\nEchidna found ${rng.int(3, 20)} counterexamples in under ${rng.int(1, 30)} seconds, confirming the ${profile.vulnType} vulnerability.`,
 
-      `\n\nCustom exploitation script:\n\n\`\`\`python\nimport requests\nimport concurrent.futures\n\nBASE_URL = "https://${domain}/api"\nHEADERS = {"Authorization": "Bearer $TOKEN"}\n\ndef test_endpoint(endpoint, param, payload):\n    \"\"\"Test a single endpoint/parameter combination\"\"\"\n    try:\n        resp = requests.get(f"{BASE_URL}/{endpoint}", \n                          params={param: payload}, \n                          headers=HEADERS, timeout=10)\n        return {\n            "endpoint": endpoint,\n            "param": param,\n            "status": resp.status_code,\n            "length": len(resp.text),\n            "interesting": resp.status_code == 500 or "${rng.pick(["error", "exception", "syntax", "SQL"])}" in resp.text.lower()\n        }\n    except Exception as e:\n        return {"endpoint": endpoint, "error": str(e)}\n\n# Test multiple endpoints in parallel\nendpoints = ${JSON.stringify(rng.pickN(["users", "search", "orders", "products", "settings", "admin", "reports", "transactions"], 4))}\npayloads = ["' OR 1=1--", "1 UNION SELECT NULL--", "{{7*7}}", "\$\{7*7\}", "| id"]\n\nwith concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:\n    futures = []\n    for ep in endpoints:\n        for payload in payloads:\n            futures.append(executor.submit(test_endpoint, ep, "${param}", payload))\n    \n    for f in concurrent.futures.as_completed(futures):\n        result = f.result()\n        if result.get("interesting"):\n            print(f"[!] INTERESTING: {result}")\n\`\`\``,
+      `\n\nCast call to reproduce on-chain:\n\n\`\`\`bash\n# Fork ${chainName} at latest block\nforge test --match-contract ${profile.contractName}_PoC \\\n  --fork-url https://${chainName.toLowerCase().replace(" ", "-")}.llamarpc.com \\\n  --fork-block-number ${rng.int(19000000, 20500000)} \\\n  -vvv\n\n# Direct cast call to verify\ncast call ${profile.contractAddress} \\\n  "${funcName}(${rng.pick(profile.externalFunctions).params.join(",")})" \\\n  --rpc-url https://${chainName.toLowerCase().replace(" ", "-")}.llamarpc.com\n\`\`\`\n\nThis confirmed the vulnerability on the live ${chainName} state.`,
 
-      `\n\nI used this one-liner to quickly extract data:\n\n\`\`\`bash\n# Chain subfinder → httpx → nuclei for automated discovery\nsubfinder -d ${domain} -silent | \\\n  httpx -silent -status-code -title -tech-detect | \\\n  tee alive_hosts.txt | \\\n  awk '{print $1}' | \\\n  nuclei -severity critical,high -silent -o critical_findings.txt\n\necho "[+] Found $(wc -l < critical_findings.txt) critical/high findings"\ncat critical_findings.txt\n\`\`\`\n\nThis pipeline discovered ${rng.int(2, 15)} critical/high severity findings across ${rng.int(5, 20)} live subdomains.`,
-
-      `\n\nQuick PoC to demonstrate the impact:\n\n\`\`\`python\nimport requests\nimport json\n\ns = requests.Session()\ns.headers.update({"Content-Type": "application/json"})\n\n# Step 1: Authenticate as regular user\nauth = s.post("https://${domain}/api/auth/login", \n              json={"email": "test@test.com", "password": "TestPass123!"})\ntoken = auth.json()["token"]\ns.headers["Authorization"] = f"Bearer {token}"\n\n# Step 2: Access another user's data (IDOR)\nfor user_id in range(1, ${rng.int(10, 50)}):\n    r = s.get(f"https://${domain}/api/users/{user_id}")\n    if r.status_code == 200:\n        data = r.json()\n        print(f"[+] User {user_id}: {data.get('email', 'N/A')} | Role: {data.get('role', 'N/A')}")\n\nprint(f"\\n[!] Successfully accessed {user_id} user records without authorization")\n\`\`\``,
+      `\n\nQuick PoC demonstrating the impact:\n\n\`\`\`solidity\nfunction testFullExploit() public {\n    // 1. Setup: Attacker deposits minimal amount\n    vm.prank(attacker);\n    target.${funcName}(${rng.pick(["1", "0.001 ether", "100"])});\n    \n    // 2. Exploit: Drain via ${profile.vulnType}\n    vm.prank(attacker);\n    target.${otherFunc}(${rng.pick(["type(uint256).max", "attacker.balance", "1"])});\n    \n    // 3. Verify: Attacker gained funds\n    uint256 attackerBalance = target.balances(attacker);\n    assertGt(attackerBalance, ${rng.int(100, 10000)} ether);\n    \n    console.log("Protocol TVL:", ${profile.tvl});\n    console.log("Attacker extracted:", attackerBalance);\n}\n\`\`\``,
     ];
-    extras.push(rng.pick(exploitCodeBlocks));
+    extras.push(rng.pick(exploitBlocks));
   }
 
   // Risk context
   if (rng.bool(0.4)) {
-    extras.push(`\n\n${rng.pick([
-      `From a risk perspective, this finding affects approximately ${rng.int(100, profile.userCount).toLocaleString()} users of the application. The attack complexity is low and requires no special conditions.`,
-      `This is a systemic issue — the same vulnerable pattern likely exists across ${rng.int(3, 15)} other endpoints that use the same ${rng.pick(["data access function", "middleware", "controller logic", "validation helper"])}.`,
-      `The combination of ${rng.pick(profile.technologies)} and ${profile.databases.name} makes this exploitable with standard tools. No custom exploit development is needed.`,
-      `Without remediation, an attacker could automate this at scale — I estimate full data extraction would take under ${rng.int(1, 30)} minutes with a simple script.`,
-      `This vulnerability has been exploitable since the ${rng.pick(profile.injectableParams)} parameter was introduced. Based on the application architecture, it's likely been present since the initial deployment.`,
-    ])}`);
+    extras.push(
+      `\n\n${rng.pick([
+        `From a risk perspective, this finding affects approximately ${profile.tvl} in TVL. The attack complexity is ${profile.exploitComplexity} and requires ${profile.requiresCapital > 0 ? profile.requiresCapital.toLocaleString() + " wei" : "no upfront capital"}.`,
+        `This is a systemic issue — the same vulnerable pattern likely exists across ${rng.int(2, 8)} other functions that use the same ${rng.pick(["internal helper", "modifier chain", "oracle fetch pattern", "state update logic"])}.`,
+        `The combination of Solidity ${solidityVer} and the ${profile.inheritanceChain.join(" / ")} pattern makes this exploitable with standard Foundry tooling. No custom exploit development is needed.`,
+        `Without remediation, an attacker could drain the contract — I estimate full extraction of the ${profile.tvl} TVL would take a single transaction on ${chainName}.`,
+        `This vulnerability has been present since the contract was deployed. Based on the current ${profile.tokenPrice} ${profile.affectedToken} price and ${profile.tvl} TVL, the maximum extractable value is significant.`,
+      ])}`,
+    );
   }
 
   // Tool verification
   if (rng.bool(0.35)) {
     const toolMention = rng.pick(phase.tools);
-    extras.push(`\n\n${rng.pick([
-      `I verified this using both ${toolMention} (automated) and manual curl requests. Both approaches produced consistent results, confirming this is a true positive.`,
-      `The ${toolMention} scanner initially flagged this. I then manually confirmed it by crafting ${rng.int(3, 10)} targeted payloads to rule out false positives.`,
-      `${toolMention} reported ${rng.int(1, 5)} findings on this endpoint. After manual triage, ${rng.int(1, 3)} are confirmed exploitable vulnerabilities.`,
-    ])}`);
+    extras.push(
+      `\n\n${rng.pick([
+        `I verified this using both ${toolMention} (automated) and manual Foundry tests. Both approaches produced consistent results, confirming this is a true positive.`,
+        `The ${toolMention} scanner initially flagged this. I then manually confirmed it by crafting ${rng.int(3, 10)} targeted test cases to rule out false positives.`,
+        `${toolMention} reported ${rng.int(1, 5)} findings on this contract. After manual triage, ${rng.int(1, 3)} are confirmed exploitable vulnerabilities.`,
+      ])}`,
+    );
   }
 
   return analysis + extras.join("");
 }
 
-export function generateFailureAnalysis(rng: SeededRNG, phase: AttackPhase, profile: TargetProfile, domain: string): string {
+// ============================================================
+// Failure Analysis
+// ============================================================
+
+export function generateFailureAnalysis(
+  rng: SeededRNG,
+  phase: AttackPhase,
+  profile: ContractProfile
+): string {
+  const funcName = rng.pick(profile.externalFunctions).name;
+  const chainName = getChainName(profile.chainId);
+
   const failureReasons = [
-    `The application's input validation caught my test payloads. The ${rng.pick(profile.technologies)} framework appears to have built-in protection against this specific attack class.`,
-    `A WAF or input filter is stripping/blocking the injection characters before they reach the backend. I observed ${rng.pick(["HTTP 403 responses", "HTML-encoded output", "silently dropped characters", "generic error messages replacing the expected behavior"])}.`,
-    `The endpoint returned consistent responses regardless of payload variation, suggesting the parameter is properly ${rng.pick(["parameterized", "sanitized", "validated", "encoded"])} before being processed.`,
-    `Rate limiting kicked in after ${rng.int(3, 20)} requests. The application implements request throttling that limits automated testing.`,
-    `The response timing is consistent across all payloads, ruling out time-based blind injection. The backend appears to use ${rng.pick(["parameterized queries", "an ORM", "prepared statements", "a security middleware layer"])}.`,
-    `The application correctly validates the Content-Type and rejects malformed requests. The security headers (${rng.pick(["CSP", "X-Content-Type-Options", "X-Frame-Options"])}) are also properly configured.`,
-    `No reflected content was found in the response. The application appears to use a modern ${rng.pick(profile.technologies)} framework with built-in output encoding.`,
+    `The contract's access control caught my test calls. The ${profile.inheritanceChain.join(" / ")} pattern appears to have proper protection against this specific attack class.`,
+    `A reentrancy guard or modifier is blocking/blocking my crafted calls before they reach the vulnerable logic. I observed ${rng.pick([
+      "revert with 'ReentrancyGuard: reentrant call'",
+      "revert with 'AccessControl: access denied'",
+      "revert with 'Ownable: caller is not the owner'",
+      "revert with 'Pausable: paused'",
+    ])}.`,
+    `The function returned consistent state regardless of my crafted calldata, suggesting the parameters are properly ${rng.pick([
+      "validated before use",
+      "bounded by checks",
+      "verified against expected ranges",
+      "guarded by a modifier",
+    ])}.`,
+    `The ${chainName} fork simulation showed the transaction reverts for all my test inputs. The contract implements proper ${rng.pick([
+      "input validation",
+      "oracle staleness checks",
+      "signature verification",
+      "slippage protection",
+    ])}.`,
+    `The gas usage is consistent across all test calls, ruling out path-dependent execution. The contract appears to use ${rng.pick([
+      "proper bounds checking",
+      "safe math operations",
+      "a well-audited library",
+      "a security middleware layer",
+    ])}.`,
+    `The contract correctly validates \`msg.sender\` and rejects unauthorized calls. The security modifiers (${rng.pick([
+      "onlyOwner",
+      "onlyRole",
+      "nonReentrant",
+      "whenNotPaused",
+    ])}) are also properly applied.`,
+    `No exploitable state change was found. The contract appears to use a modern ${profile.inheritanceChain.join(" / ")} pattern with proper safeguards.`,
   ];
 
   let analysis = rng.pick(failureReasons);
 
   analysis += `\n\n${rng.pick([
-    "This doesn't mean the application is fully secure — it means this specific attack vector is mitigated. I'll adjust my approach and try alternative techniques.",
+    "This doesn't mean the contract is fully secure — it means this specific attack vector is mitigated. I'll adjust my approach and try alternative techniques.",
     "The failure is informative. It tells me the developers have implemented at least basic security controls. I need to find gaps in their coverage.",
-    "I'll document this negative result in the report. It's important to note what defenses ARE working, not just what's broken.",
-    "This is a good sign for the client's security posture, but I'll continue testing with more creative approaches.",
+    "I'll document this negative result in the audit report. It's important to note what defenses ARE working, not just what's broken.",
+    "This is a good sign for the protocol's security posture, but I'll continue testing with more creative approaches.",
     "The defense is effective against this specific technique, but there may be bypass methods I haven't tried yet.",
   ])}`;
 
   analysis += `\n\n**Pivot plan:** ${rng.pick([
-    "I'll try the same vulnerability class with different encoding techniques to bypass the filter.",
-    "I'll test adjacent endpoints that might share vulnerable code but lack the same protection.",
-    "I'll switch to manual testing with targeted payloads instead of automated scanning.",
-    `I'll write a custom Python script to test edge cases that ${rng.pick(phase.tools)} might miss.`,
-    "I'll test using different HTTP methods — sometimes only one method is properly validated.",
-    "I'll look for second-order injection points where the payload is stored and triggered in a different context.",
-    `I'll check if the ${rng.pick(["API", "mobile API", "v1 API", "internal API"])} has the same protection.`,
+    "I'll try the same vulnerability class with different call patterns to bypass the modifier.",
+    "I'll test adjacent functions that might share vulnerable code but lack the same protection.",
+    "I'll switch to manual invariant testing with Foundry instead of automated scanning.",
+    `I'll write a custom Foundry test to test edge cases that ${rng.pick(phase.tools)} might miss.`,
+    "I'll test using different function selectors — sometimes only one code path is properly guarded.",
+    "I'll look for second-order vulnerabilities where the state change is triggered in a different context.",
+    `I'll check if the ${rng.pick(["governance contract", "treasury", "bridge adapter", "oracle aggregator"])} has the same protection.`,
   ])}`;
 
   return analysis;
+}
+
+// ============================================================
+// Deep Analysis Generator (for padding conversations)
+// ============================================================
+
+export function generateDeepAnalysis(profile: ContractProfile, rng: SeededRNG): string {
+  const funcName = rng.pick(profile.externalFunctions).name;
+  const stateVar = rng.pick(profile.stateVariables);
+  const chainName = getChainName(profile.chainId);
+  const solidityVer = profile.solidityVersion;
+
+  const sections: string[] = [];
+
+  // Section 1: Architectural observation
+  sections.push(
+    `Looking at ${profile.contractName}'s architecture, the ${profile.inheritanceChain.join(" → ")} inheritance chain reveals the security model. The contract manages ${profile.stateVariables.length} state variables and exposes ${profile.externalFunctions.length} external functions. With ${profile.tvl} TVL and ${profile.affectedToken} trading at ${profile.tokenPrice}, any vulnerability here carries significant financial risk.`,
+  );
+
+  // Section 2: Function-level analysis
+  sections.push(
+    `The \`${funcName}()\` function (visibility: external, modifiers: [${rng.pick(profile.externalFunctions).modifiers.join(", ")}]) is a prime candidate for deeper analysis. It operates on \`${stateVar.name}\` (${stateVar.type}, ${stateVar.visibility}) and the ${profile.vulnType} pattern suggests ${rng.pick([
+      "the state update ordering may allow reentrancy between the external call and the balance update",
+      "the access control modifier may not cover all code paths that modify critical state",
+      "the oracle price fetch may be manipulable within a single block on " + chainName,
+      "the signature verification may be missing chainId binding, enabling cross-chain replay",
+      "the rounding in the share calculation may systematically favor the caller over the protocol",
+    ])}.`,
+  );
+
+  // Section 3: Exploitation assessment
+  sections.push(
+    `Exploitation complexity: **${profile.exploitComplexity}**. ${profile.exploitComplexity === "trivial"
+      ? "Any external caller can trigger this in a single transaction."
+      : profile.exploitComplexity === "moderate"
+        ? "Requires crafting specific input sequences but no flash loan or complex setup."
+        : "Requires multi-transaction setup, possibly involving a flash loan and multiple contract interactions."
+    } Required capital: ${profile.requiresCapital > 0 ? profile.requiresCapital.toLocaleString() + " wei" : "none"}. PoC type: **${profile.pocType}**.`,
+  );
+
+  // Section 4: Impact assessment
+  sections.push(
+    `If exploited, the ${profile.impactType} could affect the entire ${profile.protocolName} protocol. Given the ${profile.tvl} TVL on ${chainName}, a successful exploit could result in losses exceeding ${rng.pick(["$100K", "$500K", "$1M", "$5M", "$10M", "$50M"])}. The ${profile.severity.toLowerCase()} severity is justified by the combination of impact and exploitability.`,
+  );
+
+  // Section 5: Remediation
+  const fixOptions = [
+    `Add a \`${rng.pick(["nonReentrant", "onlyOwner", "onlyRole(ADMIN_ROLE)", "whenNotPaused"])}\` modifier to \`${funcName}()\` and reorder state updates to follow the checks-effects-interactions pattern.`,
+    `Implement proper input validation for the \`${stateVar.name}\` parameter, ensuring values are within expected bounds before state modification.`,
+    `Add oracle staleness checks before using price data, and implement a time-weighted average price (TWAP) to resist manipulation.`,
+    `Bind signatures to \`block.chainid\` to prevent cross-chain replay attacks, and ensure each signature can only be consumed once.`,
+    `Use SafeCast or explicit overflow checks for all arithmetic operations involving user-supplied values.`,
+  ];
+  sections.push(`Recommended fix: ${rng.pick(fixOptions)}`);
+
+  return sections.join("\n\n");
 }

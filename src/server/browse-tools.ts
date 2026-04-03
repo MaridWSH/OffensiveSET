@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listAvailableScenarios, generateDataset } from "../generators/v1-generator.js";
 import { ALL_SCENARIOS } from "../templates/scenarios/index.js";
-import { PENTESTING_TOOLS } from "../schemas/tools/index.js";
+import { SMARTCONTRACT_TOOLS } from "../schemas/tools/index.js";
 import * as fsp from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -41,13 +41,13 @@ export function registerBrowseTools(server: McpServer) {
       category: z.string().optional().describe("Filter by tool category (recon, enumeration, scanning, exploitation, post_exploitation, reporting, utility)"),
     },
     async (args) => {
-      let tools = PENTESTING_TOOLS;
+      let tools = SMARTCONTRACT_TOOLS;
       if (args.category) tools = tools.filter(t => t.category === args.category);
 
       return {
         content: [{
           type: "text",
-          text: `PentesterFlow Tool Arsenal\n\nTotal tools: ${PENTESTING_TOOLS.length}\n\n${tools.map(t => `### ${t.name} [${t.category}]\n${t.description}\nParameters: ${Object.keys(t.parameters).join(", ")}\nExample: ${t.example_commands[0] || "N/A"}`).join("\n\n")}`,
+          text: `PentesterFlow Tool Arsenal\n\nTotal tools: ${SMARTCONTRACT_TOOLS.length}\n\n${tools.map(t => `### ${t.name} [${t.category}]\n${t.description}\nParameters: ${Object.keys(t.parameters).join(", ")}\nExample: ${t.example_commands[0] || "N/A"}`).join("\n\n")}`,
         }],
       };
     }

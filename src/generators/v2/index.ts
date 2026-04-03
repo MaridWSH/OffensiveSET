@@ -1,7 +1,7 @@
 // Dataset Generator V2 — Main entry point
 
 import { ALL_SCENARIOS, ScenarioTemplate } from "../../templates/scenarios/index.js";
-import { SeededRNG } from "../outputs/index.js";
+import { SeededRNG, ContractProfile, SmartContractOutputEngine } from "../outputs/index.js";
 
 import { GenerationConfig, DatasetQualityReport, DEFAULT_CONFIG } from "./types.js";
 import { buildConversationV2 } from "./conversation.js";

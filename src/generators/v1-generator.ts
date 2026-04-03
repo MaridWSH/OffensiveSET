@@ -3,7 +3,7 @@
 // Outputs ShareGPT/ChatML format in JSONL
 
 import { ScenarioTemplate, AttackPhase, ALL_SCENARIOS } from "../templates/scenarios/index.js";
-import { PENTESTING_TOOLS, ToolDefinition } from "../schemas/tools/index.js";
+import { SMARTCONTRACT_TOOLS, ToolDefinition } from "../schemas/tools/index.js";
 import * as fs from "fs";
 import * as fsp from "fs/promises";
 import * as path from "path";
@@ -298,7 +298,7 @@ function buildConversation(
 
   // 2. Available tools definition
   const scenarioTools = scenario.tools_involved
-    .map(name => PENTESTING_TOOLS.find(t => t.name === name))
+    .map(name => SMARTCONTRACT_TOOLS.find(t => t.name === name))
     .filter((t): t is ToolDefinition => t !== undefined);
 
   const toolsDescription = scenarioTools

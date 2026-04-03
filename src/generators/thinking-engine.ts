@@ -1,8 +1,8 @@
-// Deep Thinking & Reasoning Engine
+// Smart Contract Audit Thinking Engine
 // Generates unique, detailed chain-of-thought reasoning blocks
-// Models real pentester cognitive process: observe → hypothesize → plan → execute → analyze → pivot
+// Models real auditor cognitive process: observe -> hypothesize -> test -> analyze -> conclude
 
-import { SeededRNG, TargetProfile, DynamicOutputEngine } from "./outputs/index.js";
+import { SeededRNG, ContractProfile } from "./outputs/index.js";
 
 export class ThinkingEngine {
   private rng: SeededRNG;
@@ -15,142 +15,273 @@ export class ThinkingEngine {
   // Phase-specific thinking generators
   // ============================================================
 
-  generateReconThinking(domain: string, profile: TargetProfile, discoveredInfo: string[]): string {
-    const approach = this.rng.pick(RECON_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      ip: profile.ip,
-      techs: profile.technologies.join(", "),
-      ports: profile.openPorts.slice(0, 5).join(", "),
-      subCount: String(this.rng.int(5, 30)),
-      discoveries: discoveredInfo.join("; "),
-      dbType: profile.databases.name,
-      headers: profile.techHeaders[0] || "unknown",
+  generateCodeReviewThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(CODE_REVIEW_TEMPLATES);
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      inheritance: profile.inheritanceChain.join(", "),
+      solidityVersion: profile.solidityVersion,
+      affectedFunction: profile.affectedFunction,
+      vulnType: profile.vulnType,
+      protocolName: profile.protocolName,
+      missingCheck: profile.missingCheck,
+      stateVarNames: profile.stateVariables.map((s) => s.name).join(", "),
+      funcNames: profile.externalFunctions.map((f) => f.name + "()").join(", "),
+      dependencies: profile.dependencies.join(", "),
     });
   }
 
-  generateEnumThinking(domain: string, profile: TargetProfile, phase: string): string {
-    const approach = this.rng.pick(ENUM_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      directories: profile.directories.slice(0, 5).join(", "),
-      params: profile.injectableParams.join(", "),
-      techs: profile.technologies.join("/"),
-      dbType: profile.databases.name,
-      endpoints: this.rng.int(5, 30).toString(),
-    });
-  }
-
-  generateVulnAnalysisThinking(domain: string, profile: TargetProfile, vulnType: string, evidence: string): string {
-    const approach = this.rng.pick(VULN_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      vulnType,
-      evidence,
-      param: this.rng.pick(profile.injectableParams),
-      techs: profile.technologies.join("/"),
-      dbType: profile.databases.name,
-      impact: this.rng.pick(["data breach", "account takeover", "remote code execution", "privilege escalation", "information disclosure", "full system compromise"]),
-    });
-  }
-
-  generateExploitThinking(domain: string, profile: TargetProfile, vulnType: string, exploitResult: string): string {
-    const approach = this.rng.pick(EXPLOIT_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      vulnType,
-      exploitResult,
-      techs: profile.technologies.join("/"),
-      dbType: profile.databases.name,
-      osUser: this.rng.pick(["www-data", "node", "appuser", "tomcat", "nginx", "spring", "django", "rails"]),
-      nextSteps: this.rng.pickN(["lateral movement", "credential harvesting", "persistence", "data exfiltration", "privilege escalation", "pivot to internal network"], 3).join(", "),
-    });
-  }
-
-  generateFailureThinking(domain: string, profile: TargetProfile, whatFailed: string, why: string): string {
-    const approach = this.rng.pick(FAILURE_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      whatFailed,
-      why,
-      techs: profile.technologies.join("/"),
-      alternativeApproach: this.rng.pick([
-        "try a different injection technique with higher level/risk settings",
-        "test alternative endpoints that may share the same vulnerable code path",
-        "look for WAF bypass techniques specific to this technology stack",
-        "try encoding the payload differently to evade input filtering",
-        "switch to a time-based technique since boolean-based was detected",
-        "test for second-order injection in a different context",
-        "try testing the same parameter via a different HTTP method",
-        "look for related parameters that might lack the same protection",
-        "use a different tool that handles this edge case better",
-        "attempt out-of-band techniques since in-band failed",
-        "check if there's an API version without the security fix",
-        "try header-based injection since body parameters are filtered",
+  generateStaticAnalysisThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(STATIC_ANALYSIS_TEMPLATES);
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      vulnType: profile.vulnType,
+      affectedFunction: profile.affectedFunction,
+      protocolName: profile.protocolName,
+      severity: profile.severity,
+      highCount: String(this.rng.int(1, 4)),
+      medCount: String(this.rng.int(2, 6)),
+      lowCount: String(this.rng.int(3, 8)),
+      infoCount: String(this.rng.int(1, 5)),
+      detectorName: this.rng.pick([
+        "Arbitrary-TransferFrom",
+        "Reentrancy-Events",
+        "Unindexed-Event",
+        "Missing-Checks",
+        "Incorrect-Ordering",
+        "State-Shadowing",
+        "Controlled-Delegatecall",
+        "Unprotected-Initializer",
+        "Weak-PRNG",
+        "Unchecked-Return",
+        "Tx-Origin",
+        "Unused-Return",
+        "Missing-Indexer",
+        "Deprecated-Stdlib",
+        "Incorrect-Interface",
       ]),
-      pivotReason: this.rng.pick([
-        "the WAF is blocking my payloads but might miss encoded variants",
-        "the parameter validation is server-side but might have inconsistencies",
-        "this endpoint is patched but older API versions might not be",
-        "direct exploitation failed but I can try chaining with another finding",
-        "the application uses a framework that has known bypass techniques",
-        "error messages suggest a different backend than initially assumed",
-        "rate limiting kicked in, need to slow down and be more targeted",
-        "the response behavior suggests there might be a different injectable point",
+      contractFile: profile.contractName + ".sol",
+    });
+  }
+
+  generateHypothesisThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(HYPOTHESIS_TEMPLATES);
+    const primaryState = profile.stateVariables[0]?.name ?? "totalSupply";
+    const secondaryState = profile.stateVariables[1]?.name ?? "balances";
+    const primaryFunc = profile.externalFunctions[0]?.name ?? "stake";
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      affectedFunction: profile.affectedFunction,
+      vulnType: profile.vulnType,
+      missingCheck: profile.missingCheck,
+      stateVar: primaryState,
+      stateVar2: secondaryState,
+      function: primaryFunc,
+      protocolName: profile.protocolName,
+      exploitComplexity: profile.exploitComplexity,
+      inheritance: profile.inheritanceChain.join(", "),
+      impactType: profile.impactType,
+    });
+  }
+
+  generatePoCThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(POC_TEMPLATES);
+    const forkText = profile.requiresFork
+      ? "needs to fork mainnet at a specific block to reproduce realistic conditions. I'll use vm.createSelectFork() with the appropriate RPC and block number"
+      : "can run as a self-contained unit test. No forking needed -- I'll deploy mock dependencies";
+    const capitalText = profile.requiresCapital === 0
+      ? "no upfront capital -- the exploit is free to execute"
+      : profile.requiresCapital < 1000
+        ? `a small amount (${profile.requiresCapital} tokens) which is easily accessible`
+        : `significant capital (${profile.requiresCapital} tokens), which may require flash loans or accumulated positions`;
+    const pocTypeText = profile.pocType === "unit"
+      ? "write a self-contained test with mock dependencies"
+      : profile.pocType === "fork"
+        ? "fork mainnet and test against the live protocol state"
+        : profile.pocType === "fuzz"
+          ? "set up fuzz handlers that try random inputs against the vulnerable function"
+          : "define invariants that the protocol should always satisfy and test with Echidna";
+    const complexityText = profile.exploitComplexity === "trivial"
+      ? "is straightforward -- just call the function and observe"
+      : profile.exploitComplexity === "moderate"
+        ? "requires some state manipulation before the attack"
+        : "needs a multi-step setup with flash loans, oracle manipulation, or cross-chain coordination";
+    const ob = "\x7b";
+    const cb = "\x7d";
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      affectedFunction: profile.affectedFunction,
+      impactType: profile.impactType,
+      pocType: profile.pocType,
+      pocTypeText,
+      vulnType: profile.vulnType,
+      protocolName: profile.protocolName,
+      requiresFork: profile.requiresFork ? "true" : "false",
+      forkText,
+      requiresCapital: String(profile.requiresCapital),
+      capitalText,
+      exploitComplexity: profile.exploitComplexity,
+      complexityText,
+      funcNames: profile.externalFunctions.map((f) => f.name + "()").join(", "),
+      stateVarNames: profile.stateVariables.map((s) => s.name).join(", "),
+      beforeState: this.rng.pick([
+        "attacker holds zero tokens",
+        "vault balance is at expected level",
+        "governance proposal is in pending state",
+        "price oracle returns fair market value",
+        "user has deposited their normal stake",
+      ]),
+      afterState: this.rng.pick([
+        "attacker drains the entire vault",
+        "attacker mints unlimited tokens",
+        "attacker passes a malicious proposal",
+        "price oracle is manipulated to allow over-borrowing",
+        "attacker withdraws more than they deposited",
+      ]),
+      foundryAssert: this.rng.pick([
+        "assertEq(attacker.balance, expectedDrainAmount)",
+        "assertTrue(vault.totalAssets() < attackerBalance)",
+        "assertEq(token.balanceOf(attacker), mintedAmount)",
+        "assertTrue(proposal.state() == ProposalState.Succeeded)",
+        "assertLt(pool.getCollateralRatio(), liquidationThreshold)",
+      ]),
+      ob,
+      cb,
+    });
+  }
+
+  generateImpactThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(IMPACT_TEMPLATES);
+    const scopeText = profile.impactType === "fund drainage" || profile.impactType === "unlimited minting"
+      ? "Changed (affects other users' assets)"
+      : "Unchanged";
+    const availabilityText = profile.impactType === "denial of service" ? "High" : "Low";
+    const complexityDesc = profile.exploitComplexity === "trivial"
+      ? "minimal technical knowledge"
+      : profile.exploitComplexity === "moderate"
+        ? "some DeFi experience and modest capital"
+        : "significant technical skill and substantial capital, but still profitable";
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      protocolName: profile.protocolName,
+      tvl: profile.tvl,
+      affectedToken: profile.affectedToken,
+      tokenPrice: profile.tokenPrice,
+      vulnType: profile.vulnType,
+      impactType: profile.impactType,
+      severity: profile.severity,
+      scopeText,
+      availabilityText,
+      complexityDesc,
+      impact1: this.rng.pick([
+        "drain all user deposits from the vault",
+        "mint arbitrary amounts of the protocol token",
+        "bypass the governance timelock and execute immediate actions",
+        "liquidate healthy positions without cause",
+        "redirect protocol fees to an attacker-controlled address",
+      ]),
+      impact2: this.rng.pick([
+        "manipulate the oracle to create bad debt across the protocol",
+        "steal voting power from legitimate delegators",
+        "freeze all withdrawals causing a bank run scenario",
+        "inflate reward distributions diluting all participants",
+        "extract MEV from pending transaction ordering",
+      ]),
+      impact3: this.rng.pick([
+        "render the protocol permanently insolvent",
+        "corrupt state making recovery impossible without migration",
+        "trigger cascading liquidations across integrated protocols",
+        "steal admin keys through privileged function access",
+        "cause permanent loss of user funds with no recourse",
+      ]),
+      worstCase: this.rng.pick([
+        "total loss of all deposited funds (~" + profile.tvl + ")",
+        "complete governance capture and protocol hijacking",
+        "a death spiral of the " + profile.affectedToken + " token",
+        "cross-protocol contagion affecting all integrated money legos",
+        "irreversible state corruption requiring a full contract migration",
+      ]),
+      usersAffected: this.rng.pick([
+        "all depositors and liquidity providers",
+        "governance participants and delegates",
+        "users with active loan positions",
+        "bridgers moving assets across chains",
+        "stakers earning yield through the protocol",
       ]),
     });
   }
 
-  generatePostExploitThinking(domain: string, profile: TargetProfile, accessLevel: string): string {
-    const approach = this.rng.pick(POST_EXPLOIT_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      accessLevel,
-      techs: profile.technologies.join("/"),
-      dbType: profile.databases.name,
-      internalServices: this.rng.pickN(["Redis", "Elasticsearch", "MongoDB", "RabbitMQ", "Memcached", "Consul", "etcd", "internal API gateway"], 3).join(", "),
-      sensitiveData: this.rng.pickN(["user PII", "payment card data", "session tokens", "API keys", "database credentials", "SSL private keys", "internal documentation", "source code"], 4).join(", "),
-    });
-  }
-
-  generateEvasionThinking(domain: string, profile: TargetProfile, blockedBy: string, blockDetails: string): string {
-    const approach = this.rng.pick(EVASION_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      techs: profile.technologies.join("/"),
-      whatFailed: blockedBy,
-      why: blockDetails,
-      alternativeApproach: this.rng.pick([
-        "double-URL-encoded payloads to bypass regex-based detection",
-        "HTTP parameter pollution with duplicate parameters",
-        "chunked transfer encoding to split the payload across chunks",
-        "switching to WebSocket protocol which often lacks WAF coverage",
-        "testing alternative API versions that predate the WAF rules",
-        "using Unicode normalization bypasses for character filtering",
-        "out-of-band techniques via DNS exfiltration",
-        "finding the origin IP to bypass the CDN/WAF entirely",
-      ]),
-      pivotReason: this.rng.pick([
-        "a Cloudflare-style challenge page pattern",
-        "AWS WAF with managed rule groups",
-        "ModSecurity with CRS 4.0 rules",
-        "a custom application-layer input filter",
-        "Akamai's Kona Site Defender",
-        "a reverse proxy with regex-based filtering",
-        "an API gateway with request validation schemas",
-      ]),
-    });
-  }
-
-  generateReportThinking(domain: string, vulnType: string, severity: string, chainedFindings: string[]): string {
-    const approach = this.rng.pick(REPORT_THINKING_TEMPLATES);
-    return this.fillThinkingTemplate(approach, {
-      domain,
-      vulnType,
-      severity,
-      chainedFindings: chainedFindings.join(" → "),
-      complianceImpact: this.rng.pickN(["GDPR Article 32", "PCI-DSS Requirement 6.5", "HIPAA Security Rule", "SOC 2 Type II CC6.1", "ISO 27001 A.14.2", "NIST SP 800-53 SI-10"], 2).join(", "),
+  generateReportThinking(profile: ContractProfile): string {
+    const approach = this.rng.pick(REPORT_TEMPLATES);
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      vulnType: profile.vulnType,
+      affectedFunction: profile.affectedFunction,
+      severity: profile.severity,
+      protocolName: profile.protocolName,
+      missingCheck: profile.missingCheck,
+      impactType: profile.impactType,
+      swcId: this.rng.pick(["SWC-107", "SWC-105", "SWC-114", "SWC-128", "SWC-123", "SWC-113", "SWC-112"]),
+      cweId: this.rng.pick(["CWE-284", "CWE-693", "CWE-841", "CWE-362", "CWE-347", "CWE-670", "CWE-682", "CWE-20"]),
       cvssVector: `AV:N/AC:${this.rng.pick(["L", "H"])}/PR:${this.rng.pick(["N", "L", "H"])}/UI:${this.rng.pick(["N", "R"])}/S:${this.rng.pick(["U", "C"])}/C:${this.rng.pick(["H", "L", "N"])}/I:${this.rng.pick(["H", "L", "N"])}/A:${this.rng.pick(["H", "L", "N"])}`,
+      fixDescription: this.rng.pick([
+        "Add the missing modifier to restrict unauthorized access",
+        "Implement the checks-effects-interactions pattern to prevent reentrancy",
+        "Add input validation for the function parameters before state mutation",
+        "Bind the signature to chainId and nonce to prevent replay attacks",
+        "Use SafeCast and SafeMath to prevent integer overflow/underflow",
+        "Add rate-limiting with a cooldown period between calls",
+      ]),
+    });
+  }
+
+  generateFailureThinking(finding: string, profile: ContractProfile): string {
+    const approach = this.rng.pick(FAILURE_TEMPLATES);
+    return this.fillTemplate(approach, {
+      contractName: profile.contractName,
+      affectedFunction: profile.affectedFunction,
+      vulnType: profile.vulnType,
+      finding,
+      error: this.rng.pick([
+        "VM revert: AccessControl: account is missing role",
+        "VM revert: ReentrancyGuard: reentrant call",
+        "VM revert: Pausable: paused",
+        "VM revert: Ownable: caller is not the owner",
+        "Error: execution reverted with no data",
+        "VM revert: SafeERC20: low-level call failed",
+        "Panic error: arithmetic underflow/overflow (0x11)",
+        "VM revert: ERC20: transfer amount exceeds balance",
+        "Error: call reverted without a reason string",
+        "VM revert: Timelock: insufficient delay",
+      ]),
+      location: this.rng.pick([
+        "the require statement checking msg.sender permissions",
+        "the _nonReentrant modifier in the call chain",
+        "the token transfer revert on insufficient balance",
+        "the initializer already-executed guard",
+        "the paused state check at function entry",
+        "the timelock delay validation",
+        "the signature replay detection mapping",
+        "the cross-chain message hash validation",
+      ]),
+      hypothesis: this.rng.pick([
+        "the vulnerability doesn't exist in this version -- the check I thought was missing is actually enforced upstream",
+        "my test setup didn't correctly initialize the contract state to match the post-deployment scenario",
+        "the exploit requires a specific fork condition (block timestamp, oracle price) that my unit test doesn't simulate",
+        "the affected function has a modifier chain I overlooked -- one of the inherited contracts adds a guard",
+        "the Solidity version (0.8+) has built-in overflow protection that prevents this particular vector",
+        "the state variable I assumed was uninitialized is actually set in the constructor or initializer",
+        "this is actually a false positive from the static analyzer -- the code path is unreachable in practice",
+      ]),
+      nextStep: this.rng.pick([
+        "re-read the modifier chain and inherited contracts more carefully",
+        "set up a fork test with real mainnet state to see if the condition changes",
+        "trace the full external call path to find where the check actually lives",
+        "test a different vulnerability class on this same function",
+        "examine the deployment/initialization sequence for missed setup steps",
+        "check if the finding applies to a different function in the contract",
+        "move on -- this finding doesn't hold and my time is better spent elsewhere",
+      ]),
     });
   }
 
@@ -158,649 +289,579 @@ export class ThinkingEngine {
   // Template filling
   // ============================================================
 
-  private fillThinkingTemplate(template: string, vars: Record<string, string>): string {
+  private fillTemplate(template: string, vars: Record<string, string>): string {
     let result = template;
-
-    // Always inject hypothesis-driven reasoning prefix (60% of the time)
-    if (this.rng.bool(0.6)) {
-      const hypothesisPrefixes = [
-        `My working hypothesis: ${vars.domain || "the target"} is likely vulnerable because ${this.rng.pick(["the technology stack has known default misconfigurations", "the error responses suggest improper input handling", "the API design follows patterns commonly associated with authorization flaws", "the response behavior is inconsistent between normal and anomalous input", "the framework version is known to have security issues in this area"])}. Let me test this systematically.\n\n`,
-        `Before diving in, let me form hypotheses about what I expect to find:\n- Hypothesis A: The ${vars.param || "input"} parameter is processed unsafely → test with injection probes\n- Hypothesis B: Authorization checks are missing at the object level → test with ID manipulation\n- Hypothesis C: The ${vars.techs || "application"} error handling leaks sensitive details → test with malformed input\nI'll test each hypothesis and eliminate the ones that don't hold.\n\n`,
-        `Cognitive process for this phase:\n1. OBSERVE: What does the application behavior tell me about its internals?\n2. HYPOTHESIZE: Based on the ${vars.techs || "technology stack"} and observed behavior, what vulnerabilities are most likely?\n3. TEST: Design specific probes to confirm or deny each hypothesis\n4. CONCLUDE: Draw evidence-based conclusions and plan the next step\n\n`,
-      ];
-      result = this.rng.pick(hypothesisPrefixes) + result;
-    }
-
     for (const [key, value] of Object.entries(vars)) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+      result = result.replace(new RegExp("\\{" + key + "\\}", "g"), value);
     }
     return result;
   }
 }
 
 // ============================================================
-// Thinking Templates — DEEP, VARIED reasoning
+// Thinking Templates -- Smart Contract Audit Reasoning
 // ============================================================
 
-const RECON_THINKING_TEMPLATES = [
-  `Starting reconnaissance against {domain}. I need to build a comprehensive picture of the attack surface before testing anything.
+const CODE_REVIEW_TEMPLATES = [
+  `Let me start by understanding the architecture. The {contractName} contract inherits from {inheritance}, which tells me a lot about the security assumptions baked in. The protocol is {protocolName}, deployed with Solidity {solidityVersion}.
 
-First, let me analyze what I already know:
-- The target resolves to {ip}
-- Initial technology fingerprinting suggests {techs}
-- I can see ports {ports} are likely open
+First, I'm scanning the inheritance chain for what each parent brings. {inheritance} -- so we have access control primitives and likely reentrancy protection. But inheriting ReentrancyGuard doesn't mean every function uses it. I need to check which functions actually have the nonReentrant modifier.
 
-My reconnaissance strategy:
-1. Passive subdomain enumeration first — I don't want to trigger any alerts. I'll use certificate transparency logs, DNS records, and web archives to discover subdomains without sending a single packet to the target.
-2. Once I have a subdomain list, I'll probe them with httpx to identify live hosts, their HTTP status codes, page titles, and technology stack. This tells me which subdomains are interesting targets.
-3. For each live subdomain, I'll run directory enumeration to discover hidden endpoints, admin panels, API documentation, backup files, and exposed configuration.
-4. I'll also check for cloud assets — S3 buckets named after the domain, exposed cloud metadata endpoints.
+The key function I want to focus on is {affectedFunction}. This is where {vulnType} could manifest. Let me trace through it line by line:
 
-What I'm specifically looking for:
-- Admin panels or management interfaces (often less hardened than public-facing apps)
-- API endpoints (often have weaker authorization than the web UI)
-- Development/staging environments (often have debug mode enabled, default credentials, or relaxed security)
-- Exposed git repositories, backup files, or configuration files
-- Third-party integrations that might be misconfigured
+1. What are the function modifiers? If {missingCheck} is not present on this function, that's the first red flag.
+2. What state variables does it read and write? I see references to {stateVarNames}. I need to verify the Checks-Effects-Interactions pattern: are all state updates done BEFORE any external calls?
+3. What external calls does it make? Any call to an untrusted external contract (ERC20 transfer, oracle read, cross-chain message) is a potential reentrancy entry point.
+4. Are there authorization checks? If this function can change protocol state but only has a lightweight or missing access control, that's an immediate finding.
 
-Based on the {techs} stack, I should pay special attention to:
-${"{techs}".includes("Node") ? "- Express middleware misconfigurations, exposed /debug routes, package.json with dependency information" : ""}
-${"{techs}".includes("Java") ? "- Spring Boot actuator endpoints (/actuator/env, /actuator/health), Apache Tomcat manager panel" : ""}
-${"{techs}".includes("PHP") ? "- phpinfo.php, exposed .htaccess, wp-admin if WordPress, Laravel debug mode" : ""}
-${"{techs}".includes("Python") ? "- Flask/Django debug mode, __pycache__ exposure, Werkzeug debugger" : ""}
-- Common misconfigurations for {dbType} database exposure
+Looking at the broader contract, the external functions are: {funcNames}. I need to understand how they interact -- does one function's output become another function's trusted input? Function chaining is where subtle bugs hide.
 
-My initial findings so far: {discoveries}. Let me analyze these and prioritize my next steps.`,
+The dependencies ({dependencies}) tell me what standards the code follows. If this uses OpenZeppelin's Ownable, I should verify the ownership model. If it uses ReentrancyGuard, I should check whether every function with external calls is protected.
 
-  `Alright, let me approach this reconnaissance methodically. Target: {domain} ({ip}).
+My initial read: the architecture looks like it has the right building blocks, but the devil is in the details. Let me dig into the specific function logic now.`,
 
-Phase 1 — Subdomain Discovery:
-I'll start with passive techniques to enumerate as many subdomains as possible. The goal is to map the entire external attack surface. Large organizations often have forgotten subdomains pointing to deprecated services, staging environments with relaxed security, or internal tools accidentally exposed to the internet.
+  `Starting my manual code review of {contractName} from {protocolName}. Solidity {solidityVersion}, inheriting from {inheritance}.
 
-I found approximately {subCount} subdomains. Now I need to:
-- Check which ones resolve and are reachable (httpx)
-- Identify the technology stack on each (headers, response fingerprinting)
-- Flag any that show interesting status codes (403 could mean there's something worth bypassing, 500 could mean vulnerable error handling)
+My review methodology: I read contracts top to bottom, tracking three things simultaneously:
+1. Data flow -- how does user input propagate through state variables?
+2. Control flow -- what are the authorization gates at each step?
+3. Asset flow -- where do tokens/ETH enter, move within, and exit the protocol?
 
-Phase 2 — Technology Profiling:
-The headers reveal {headers}, which tells me this is a {techs} stack. This is important because:
-- Each framework has its own set of common vulnerabilities and misconfigurations
-- The database backend ({dbType}) determines what SQL injection payloads will work
-- The web server determines what path traversal and header manipulation techniques apply
+The contract structure:
+- State variables: {stateVarNames}
+- External functions: {funcNames}
+- Dependencies: {dependencies}
 
-Phase 3 — Attack Surface Prioritization:
-Not all endpoints are equal. I'm looking for:
-1. Authentication endpoints — these handle credentials and sessions, highest value target
-2. API endpoints — often have less restrictive input validation than web forms
-3. File upload/download — potential for path traversal, SSRF, or unrestricted upload
-4. Search/filter functionality — common injection points
-5. Admin/management interfaces — if accessible, usually game over
+I'm particularly interested in {affectedFunction} because it handles logic related to {vulnType}. Let me examine it closely.
 
-Key observations so far: {discoveries}`,
+The function signature, its modifiers, and its body tell a story. If the story goes: "read user input -> validate access control -> update state -> call external contract -> emit event", that's well-structured. But if the order is: "read user input -> call external contract -> update state", then we have a classic reentrancy window between the external call and the state update.
 
-  `Let me think about how to approach {domain} systematically.
+What also concerns me is the {missingCheck} aspect. If this check should exist but doesn't, it means the function operates on assumptions that aren't enforced by the code itself. For instance, if it assumes a valid epoch, a valid signer, or a non-zero amount -- but doesn't actually validate these -- then an attacker can violate those assumptions.
 
-The IP {ip} and initial response headers suggest {techs}. This gives me a solid starting point for targeted enumeration.
+The inheritance from {inheritance} gives the contract its security foundation, but inherited modifiers can create a false sense of security. Just because Ownable is inherited doesn't mean every privileged function has onlyOwner. I need to verify each function individually.
 
-My mental model for this assessment:
-- The application is running {techs} which means I should focus on vulnerabilities common in this stack
-- The database appears to be {dbType}, so my SQL injection payloads need to be dialect-specific
-- I found {subCount} subdomains, which is a moderate attack surface
+Let me continue with a deeper dive into the specific logic of {affectedFunction}.`,
 
-Critical thinking about what I've found so far:
-{discoveries}
+  `Alright, reading through {contractName} from {protocolName}. This is a {solidityVersion} contract, so I know I'm working with at least some of the safety improvements from 0.8.x (built-in overflow checks, custom errors, etc.).
 
-Before I start active testing, I want to understand the security posture:
-- Are there WAF/CDN indicators? (Cloudflare, Akamai, AWS WAF headers)
-- Do error responses leak stack traces or internal paths?
-- Are CORS headers permissive?
-- Is the CSP header present and restrictive?
-- Are cookies marked HttpOnly and Secure?
+Architecture overview:
+- Inherits: {inheritance}
+- Core state variables: {stateVarNames}
+- External entry points: {funcNames}
 
-These defensive indicators will determine my approach — if there's a WAF, I need to be more careful with my payloads and may need encoding/obfuscation techniques. If there's no CSP, stored XSS becomes more impactful. If cookies lack HttpOnly, session hijacking via XSS is straightforward.
+My mental model of this contract's purpose is forming. It appears to manage some kind of {vulnType}-related logic, likely involving state transitions between the variables I listed above.
 
-Let me continue the enumeration and start identifying specific entry points.`,
+The function I'm zeroing in on: {affectedFunction}.
+
+Let me think about what could go wrong here. I'm looking for the classic smart contract vulnerability patterns:
+1. Reentrancy -- external call before state update
+2. Access control -- missing or insufficient authorization check
+3. Logic error -- incorrect math, wrong condition, off-by-one
+4. Oracle manipulation -- trusting an easily-manipulated price source
+5. Rounding/precision -- losses that favor the protocol (or the attacker)
+6. Initialization -- upgradeable proxy not properly initialized
+7. Signature replay -- EIP-712 signatures not bound to chain/nonce
+
+The specific concern with {vulnType} is that {missingCheck}. If this check is genuinely missing, then any caller can invoke {affectedFunction} under conditions the protocol never intended.
+
+One thing I always check: does this function interact with any external contracts that might be malicious? If it calls transfer(), transferFrom(), or any function on a user-supplied contract address, that contract could call back into {contractName} before the state is updated. The {inheritance} inheritance provides ReentrancyGuard, but only if the nonReentrant modifier is actually applied to {affectedFunction}.
+
+Let me also think about upgradeability. If this is a UUPS or transparent proxy pattern, I need to check the initializer and the _authorizeUpgrade function. An uninitialized implementation is a classic critical finding.
+
+Moving on to static analysis to catch what I might have missed in manual review.`,
 ];
 
-const ENUM_THINKING_TEMPLATES = [
-  `Directory and endpoint enumeration is revealing interesting results on {domain}.
+const STATIC_ANALYSIS_TEMPLATES = [
+  `Running Slither with the full detector suite against {contractFile}. Results are in: {highCount} High, {medCount} Medium, {lowCount} Low, {infoCount} Informational findings.
 
-Discovered paths so far: {directories}
-This tells me several things:
-1. The application structure follows a {techs} convention
-2. There are {endpoints} accessible endpoints across different functionality areas
-3. Some paths returned 403 instead of 404 — meaning the resource EXISTS but I'm not authorized. These are prime targets for access control bypass.
+Let me triage these systematically, starting with the Highs.
 
-Parameter analysis is crucial here. I found these parameters: {params}
+The {vulnType} finding stands out -- let me examine the detector's reasoning. The detector ({detectorName}) flagged {affectedFunction} in {contractName}. The reasoning is that the function performs an operation without adequate validation, which could allow an attacker to cause {impactType}.
 
-For each parameter, I need to determine:
-- What type of data it accepts (integer, string, URL, file path)
-- Whether it's reflected in the response (XSS potential)
-- Whether it's used in database queries (SQLi potential)
-- Whether it fetches external resources (SSRF potential)
-- Whether it references objects by ID (IDOR potential)
+But I don't blindly trust automated findings. Static analyzers produce false positives. I need to verify each one manually:
 
-My priority testing order:
-1. Parameters that accept IDs or references → test for IDOR/BOLA
-2. Parameters in search/filter functionality → test for SQLi
-3. Parameters reflected in HTML → test for XSS
-4. Parameters that accept URLs → test for SSRF
-5. File/path parameters → test for LFI/path traversal
+For the {detectorName} finding specifically:
+- Does the detector correctly understand the control flow? Slither uses static analysis, which means it explores all possible paths -- but it can't reason about runtime conditions like oracle prices or governance timelocks.
+- Is the flagged code path actually reachable? If there's a guard earlier in the call chain that Slither didn't trace through, this could be a false positive.
+- Does the finding assume the external contract is malicious? In many cases, the protocol trusts specific deployed addresses (like a known ERC20). The detector might flag interactions with trusted contracts unnecessarily.
 
-The {dbType} backend means I should use specific payloads for this DBMS dialect. Common differences include comment syntax, string concatenation, and time delay functions.`,
+The Medium findings are also worth reviewing. These are often gas optimizations or code quality issues, but sometimes they mask real vulnerabilities. A "missing zero-address check" Medium might actually be Critical if a zero-address in a mapping key causes a storage collision.
 
-  `I'm mapping the application's endpoint structure on {domain}.
+The Low and Informational findings are mostly noise for security purposes -- naming conventions, unused variables, external function declarations that could be external. I'll skim them but won't spend much time here.
 
-Found directories: {directories}
+Key takeaway from Slither: the {vulnType} finding on {affectedFunction} is worth investigating manually. Let me switch to manual verification to confirm or dismiss it.
 
-The pattern I'm seeing suggests this is a standard {techs} application with:
-- Public-facing endpoints (low security value but good for understanding the app)
-- API endpoints (usually the most interesting for injection and authorization testing)
-- Administrative endpoints (highest value if accessible)
+I should also run Mythril or Echidna for deeper symbolic execution and fuzzing, especially on the math-heavy functions. If there are arithmetic operations in {contractName}, fuzzing can find edge cases that static analysis misses.`,
 
-For parameter discovery, I'll use multiple techniques:
-1. Crawling visible pages and extracting parameters from forms, JavaScript, and links
-2. Fuzzing with common parameter names using Arjun
-3. Checking web archives (gau, wayback) for historical parameters that might still work
-4. Analyzing JavaScript files for API calls and hidden parameters
+  `Slither analysis complete on {protocolName}/{contractFile}. Let me process the results.
 
-Currently identified parameters: {params}
+High severity ({highCount} findings):
+The most interesting one is {detectorName} targeting {affectedFunction}. This detector looks for {vulnType} patterns -- specifically cases where the function allows {vulnType} without proper guards.
 
-One thing that stands out — the way parameters are named suggests the developers might be using direct database column names as API parameters. This is a common anti-pattern that often leads to mass assignment vulnerabilities (if I can guess hidden parameters like "role" or "is_admin", the API might accept them even though they're not in the documentation).
+Let me trace through the Slither output more carefully. The detector identified:
+- A data flow from user-controlled input to a sensitive state operation
+- Missing validation at the function entry point
+- An external call that could be exploited for {impactType}
 
-Next, I'll test each parameter with basic injection probes to see which ones look promising before doing deep exploitation.`,
+This is a strong signal, but I need to manually verify. My process:
+1. Read the source code of {affectedFunction} in full context
+2. Check if the Slither-reported data flow is accurate
+3. Test whether the missing check can actually be exploited
+4. Determine if there are mitigating factors Slither couldn't detect
 
-  `Mapping the attack surface of {domain} — let me think about what these enumeration results mean.
+Medium severity ({medCount} findings):
+These include things like unchecked return values from low-level calls, missing event emissions on privileged functions, and potentially dangerous function naming. Most of these are code quality issues, but some could escalate. For example, if a function changes a critical parameter but doesn't emit an event, that's a governance transparency issue even if not directly exploitable.
 
-The directory structure reveals: {directories}
-Discovered {endpoints} total endpoints.
+Low severity ({lowCount} findings):
+Mostly style and gas optimization. Not security-relevant in the immediate sense, but I'll note any that indicate developer inexperience (e.g., using tx.origin for auth, which is an anti-pattern even if not directly exploitable in this specific case).
 
-What catches my eye:
-- Any .git, .env, or config paths → potential information disclosure that gives me an advantage
-- API versioning (v1, v2) → older API versions often lack security fixes present in newer ones
-- Admin/dashboard paths → even if 403, worth testing header bypass, path traversal, or parameter tampering
-- Debug/health/metrics endpoints → often leak internal state, environment variables, or dependency information
+Informational ({infoCount} findings):
+Unused imports, functions that could be declared external, pragma statements. Zero security impact.
 
-The parameter landscape ({params}) suggests several attack vectors I should test systematically. Rather than spraying payloads blindly, I want to understand how each parameter is processed:
-- Send a normal value and analyze the response structure
-- Send an empty value — does it error differently?
-- Send a very long value — does it truncate or cause an error that leaks information?
-- Send special characters (' " < > {{ | ; \` $) — which ones cause errors vs get filtered vs get reflected?
+My conclusion from the automated analysis: the {vulnType} finding on {affectedFunction} is the one worth pursuing. Everything else is either a false positive or too low-impact. Time to formulate a hypothesis and test it.`,
 
-This behavioral analysis tells me more about the backend processing than any automated scanner could.`,
+  `Running the full static analysis pipeline on {protocolName}'s {contractName} contract.
+
+Tool chain:
+1. Slither -- for pattern-based vulnerability detection
+2. Slither-printers -- for human-readable analysis of authorization, inheritance, and external calls
+3. Custom regex searches -- for specific patterns like tx.origin, block.timestamp usage, unchecked arithmetic (if <0.8.0)
+
+Slither results: {highCount} High, {medCount} Medium, {lowCount} Low, {infoCount} Informational.
+
+The {vulnType} flag from {detectorName} is the one that catches my eye. Let me look at the specific detector output:
+
+The detector reports that {affectedFunction} has a {vulnType} vulnerability. Specifically, it identified a path where user input reaches a sensitive operation without adequate validation. In {contractFile}, the function {affectedFunction} ...
+
+Now, I need to validate this finding. Here's my validation checklist:
+- Does the function accept untrusted input? Yes, if it has external/public visibility and takes parameters.
+- Is the input used in a sensitive operation? This depends on what {vulnType} means in context.
+- Is there a missing {missingCheck}? This is the critical question. If the check is missing, the finding is confirmed.
+- Can this be exploited in practice? I need to check if there are runtime conditions that prevent exploitation even if the code path is technically vulnerable.
+
+One thing I've learned from audits: the static analyzer is a starting point, not the conclusion. The real analysis begins when I read the code myself.
+
+Let me now formulate a specific hypothesis about this vulnerability and plan how to test it.`,
 ];
 
-const VULN_THINKING_TEMPLATES = [
-  `I've identified a potential {vulnType} vulnerability on {domain}.
+const HYPOTHESIS_TEMPLATES = [
+  `I suspect the {affectedFunction} function is vulnerable to {vulnType} because {missingCheck}. Let me trace the execution path carefully.
 
-Evidence: {evidence}
+Here's my hypothesis:
+When a user calls {affectedFunction}, the function first reads {stateVar}, then makes an external call to {function}, but I don't see any {missingCheck} before the state mutation happens. This creates a window where an attacker can exploit the gap.
 
-Let me analyze this carefully before confirming.
+Let me walk through the execution flow step by step:
 
-The parameter '{param}' in the {techs} application appears to be vulnerable because:
-1. The response behavior changes based on my injected payload — this is a strong positive signal
-2. The error message (if any) reveals backend details that shouldn't be exposed
-3. The input is not being properly sanitized or parameterized before being used in the server-side operation
+Step 1 -- Entry: The caller invokes {affectedFunction} on {contractName}. The function checks... nothing, if {missingCheck} is truly absent. Any address can call it.
 
-Before I declare this confirmed, I need to rule out false positives:
-- Could the response difference be caused by something other than successful injection?
-- Is the application using a WAF that might be mangling my payload and causing a different error?
-- Could this be a client-side validation only, with the server actually handling it safely?
+Step 2 -- State read: The function reads {stateVar} to determine the current protocol state. If this value can be manipulated by the attacker before the function executes, that's an oracle/data integrity issue.
 
-To confirm, I'll:
-1. Send a "true" condition payload and a "false" condition payload — compare responses
-2. Use increasingly specific payloads to determine the exact injection context
-3. Test if I can extract actual data vs just getting a boolean response
-4. Determine the scope of impact — what data can I access? Can I modify data? Can I escalate to OS access?
+Step 3 -- External interaction: The function calls {function} (or interacts with an external contract). This is where things get interesting. If the external contract is user-controlled, it could call back into {contractName} before the state is finalized -- classic reentrancy.
 
-If this confirms as {vulnType}, the impact assessment is:
-- Confidentiality: I could potentially extract {impact}
-- Integrity: If write operations are possible, I could modify data
-- Availability: Depending on the injection context, I might be able to cause denial of service
+Step 4 -- State mutation: After the external call, the function updates {stateVar2}. But by this point, if reentrancy occurred, the state is already corrupted. The attacker called in twice, and the second call saw stale state from the first call.
 
-This aligns with {vulnType} which is a known high-severity vulnerability class. Let me proceed with careful exploitation to fully demonstrate the impact.`,
+My confidence level: Moderate to High. The inheritance chain ({inheritance}) suggests the developers intended to have security controls, but {missingCheck} being absent on {affectedFunction} means those controls aren't applied here.
 
-  `Analyzing what I'm seeing on {domain} — the behavior strongly suggests {vulnType}.
+Before I jump to writing a PoC, let me consider alternative hypotheses:
+- Maybe the check exists in a modifier I overlooked. Let me re-examine the full modifier chain.
+- Maybe the external contract is guaranteed safe by protocol design (e.g., it's a deployed OpenZeppelin contract). In that case, reentrancy is theoretical only.
+- Maybe the Solidity 0.8.x built-in checks prevent the overflow/underflow I'm assuming.
 
-The specific evidence is: {evidence}
+But even if one hypothesis falls, others may still hold. The key question is: can an attacker cause {impactType} through this function? Let me try to prove it.`,
 
-My reasoning process:
-1. I sent a baseline request with normal input to the '{param}' parameter and recorded the response.
-2. I then sent a modified request with an injection payload. The response was different in a way that's consistent with {vulnType}.
-3. To eliminate false positives, I sent several variations — the pattern is consistent.
+  `Let me formulate my hypothesis more precisely.
 
-Understanding the vulnerability context:
-The {techs} stack is using {dbType} on the backend. Based on the error behavior, the vulnerable code is likely:
-- NOT using parameterized queries / prepared statements (for SQLi)
-- NOT sanitizing user input before passing to a dangerous sink (for XSS/SSTI/command injection)
-- NOT implementing proper access control checks on the object level (for IDOR/BOLA)
+Working hypothesis: {contractName}.{affectedFunction} is vulnerable to {vulnType} due to {missingCheck}.
 
-The risk is real because:
-- This parameter is accessible to any authenticated user (or even unauthenticated in some cases)
-- The vulnerability is in a production endpoint, not a debug or test endpoint
-- The potential impact extends to {impact}
+Attack scenario:
+1. Attacker identifies that {affectedFunction} lacks {missingCheck}
+2. Attacker crafts a transaction that exploits this gap by causing {impactType}
+3. The exploit complexity is {exploitComplexity}
+4. The outcome is {impactType}, which directly affects {stateVar}
 
-I need to be thorough but careful — I want to demonstrate maximum realistic impact without causing any actual damage to the production environment. I'll use read-only operations where possible and time-based techniques to avoid data modification.`,
+Let me trace the data flow to verify:
+- Input: Caller provides parameters to {affectedFunction}
+- Processing: The function computes a result based on {stateVar} and {stateVar2}
+- Output: The function transfers tokens, updates state, or emits events
 
-  `Something interesting on {domain}. The '{param}' parameter is behaving abnormally.
+Where is the gap? The function assumes {missingCheck} but never enforces it. This means:
+- If {missingCheck} is an access control issue: any address can invoke privileged logic
+- If {missingCheck} is a reentrancy issue: the function can be called recursively before state finalizes
+- If {missingCheck} is a validation issue: invalid inputs produce undefined/advantageous behavior
+- If {missingCheck} is an oracle issue: the function trusts data that can be manipulated
 
-What I observed: {evidence}
+The protocol is {protocolName}, which inherits {inheritance}. The fact that it inherits these contracts but still has {vulnType} suggests a developer oversight -- the security primitives exist but weren't applied to this specific function.
 
-Let me reason through this step by step.
+I need to write a test to confirm this hypothesis. Let me think about the test setup.`,
 
-Hypothesis 1: This is a genuine {vulnType} vulnerability
-- Evidence for: The response clearly changes when I inject test payloads
-- Evidence against: Could be a WAF or input filter that creates a different error
+  `Okay, I've spent enough time reading the code. Here's my analysis:
 
-Hypothesis 2: This is a WAF false positive
-- Evidence for: The error response doesn't contain typical database/template error signatures
-- Evidence against: The response timing varies significantly with different payloads
+The {affectedFunction} function in {contractName} has a suspicious pattern. Let me explain.
 
-Hypothesis 3: The input validation is partial
-- Evidence for: Some payloads get through while others are blocked
-- Evidence against: The payloads that get through consistently produce exploitable behavior
+What the function does:
+It's an {exploitComplexity}-complexity function that interacts with {stateVar}. Under normal circumstances, it works fine. But the missing {missingCheck} means that under specific conditions -- conditions an attacker can control -- the function behaves incorrectly.
 
-After testing {techs}-specific payloads against this {dbType} backend, I'm confident this is Hypothesis 1 — a genuine vulnerability. The key evidence is that I can predictably control the application behavior through the '{param}' parameter.
+The vulnerability class is {vulnType}. Here's why I believe this:
 
-My exploitation plan:
-1. Determine exact injection point and context (is it in a string, numeric, ORDER BY clause, etc.)
-2. Identify which data I can access (scope of the vulnerability)
-3. Test for write capabilities (can I modify data, not just read it?)
-4. Check for escalation potential (from data access to code execution)
-5. Document the full attack chain for the report
+Evidence 1: The function {affectedFunction} is external and callable by any address (or at least a broader set of addresses than intended). No {missingCheck} restricts who can call it.
 
-Estimated severity: The combination of {vulnType} in a production endpoint with access to {impact} suggests this is at least High severity, potentially Critical if I can achieve code execution or access highly sensitive data.`,
+Evidence 2: The function reads and writes {stateVar} and {stateVar2} without validating the intermediate state. If an attacker can manipulate these values between reads and writes, the computation is compromised.
+
+Evidence 3: The contract inherits {inheritance}, which provides security mechanisms. But inheritance alone doesn't protect you -- each function must explicitly use the modifiers. If {affectedFunction} doesn't have the right modifiers, the inherited protections don't apply.
+
+My attack hypothesis:
+An attacker can call {affectedFunction} under conditions that trigger {impactType}. The key enabler is the missing {missingCheck}. Without it, the function processes requests it should reject.
+
+Alternative explanations I've considered and ruled out:
+- Could this be intentional? Unlikely. The inherited contracts suggest the developers knew about the need for {missingCheck}. Its absence from {affectedFunction} is most plausibly an oversight.
+- Is it mitigated elsewhere? I've checked the call chain and found no upstream validation that would prevent this exploit.
+
+Next step: write a Foundry test to prove this hypothesis is correct.`,
 ];
 
-const EXPLOIT_THINKING_TEMPLATES = [
-  `Exploitation of {vulnType} on {domain} is progressing.
+const POC_TEMPLATES = [
+  `Writing a Foundry test to prove this vulnerability. I'll structure the test to clearly show the before and after state.
 
-Current result: {exploitResult}
+Test plan:
+1. Set up the initial state with a depositor holding normal amounts of the protocol token
+2. Call {affectedFunction} as the attacker, exploiting the {vulnType}
+3. Verify the exploit succeeded by checking state changes
+4. The test should show: {beforeState} -> {afterState}
 
-This confirms the vulnerability is real and exploitable. Let me think about maximizing the demonstrated impact while staying within scope.
+Solidity test structure:
 
-What I've achieved so far:
-- Confirmed the injection/bypass works reliably
-- Extracted initial data to prove the vulnerability
-- The {techs} application is running as {osUser} on the system
+  contract {contractName}ExploitTest is Test {ob}
+      {contractName} public target;
 
-Chaining opportunities:
-The real power of penetration testing isn't finding individual bugs — it's showing how they chain together. From this {vulnType} finding, I can potentially:
-1. {nextSteps}
-2. Use any discovered credentials to access other systems
-3. Leverage internal network access if I can pivot
+      function setUp() public {ob}
+          // Deploy or fork the {protocolName} protocol
+          target = new {contractName}();
+          // Initialize with realistic state
+      {cb}
 
-Risk-aware exploitation:
-I need to be careful here. While I want to demonstrate maximum impact for the report, I also need to:
-- Not disrupt the production service
-- Not modify or delete any actual data
-- Use read-only operations wherever possible
-- Log all my activities for the engagement report
-- If I get shell access, run only passive enumeration commands (whoami, id, env, cat /etc/passwd)
+      function testExploit_{vulnType}() public {ob}
+          // Phase 1: Setup - normal protocol state
+          // {beforeState}
 
-The goal is to demonstrate that an attacker COULD do severe damage, not to actually cause it. Every exploitation step should be documented with screenshots and command output for the report.
+          // Phase 2: Attacker calls {affectedFunction} exploiting {vulnType}
+          // The missing {missingCheck} allows this
 
-Impact assessment update: This has escalated from a single {vulnType} to a potential full system compromise through exploitation chaining. The severity is Critical.`,
+          // Phase 3: Verify exploit
+          // {afterState}
+          // {foundryAssert}
+      {cb}
+  {cb}
 
-  `The {vulnType} exploit on {domain} worked. Let me analyze what we've gained and plan the next steps.
+The test complexity is {exploitComplexity}, so:
+- If trivial: A simple direct call to {affectedFunction} with no special setup
+- If moderate: Requires setting up specific state conditions (e.g., epoch boundaries, price feeds)
+- If complex: Requires fork testing with mainnet state, flash loans, or multi-contract orchestration
 
-Exploitation output: {exploitResult}
+Since requiresFork = {requiresFork}, this test {forkText}.
 
-Current access level analysis:
-- I'm running commands as {osUser} which typically has {techs} service-level privileges
-- This means I can read application files, environment variables, and potentially database credentials
-- The {dbType} database is likely accessible with credentials from the application config
+The capital requirement is {requiresCapital}, meaning the attacker needs {capitalText}.
 
-My exploitation methodology is:
-1. ENUMERATE: Map what I can access from this position
-   - Read /etc/passwd to understand user accounts
-   - Check environment variables for hardcoded secrets
-   - Read the application configuration files
-   - Check network interfaces and routing tables
+Let me refine the test to be maximally clear about the exploit mechanics.`,
 
-2. ESCALATE: Look for privilege escalation vectors
-   - SUID binaries that can be abused
-   - Docker group membership (container escape)
-   - Writable cron jobs or systemd timers
-   - Kernel version vs known exploits
-   - Sudo misconfigurations
+  `Building the PoC test. I'm using Foundry (Forge) since it's the standard for smart contract testing.
 
-3. PIVOT: Identify lateral movement opportunities
-   - Internal services reachable from this host: {nextSteps}
-   - SSH keys or credentials for other systems
-   - Cloud metadata endpoints (if running on cloud infrastructure)
+The test needs to demonstrate {impactType} through {vulnType} in {contractName}.{affectedFunction}.
 
-4. EXFILTRATE: Demonstrate data access impact
-   - Sample user data to prove access scope
-   - Identify PII, PCI, or other regulated data
-   - Show what an attacker could steal
+My approach:
+1. Deploy the {protocolName} contracts (or fork mainnet if requiresFork = {requiresFork})
+2. Set up honest users with normal positions
+3. Execute the attack via {affectedFunction}
+4. Assert the damage matches expectations
 
-I'm going to be methodical about this. Each step builds on the previous one, and every finding goes into the report.`,
+Key test functions I'll need:
+- setUp(): Deploy contracts, fund test addresses, establish baseline state
+- test_{vulnType}(): The actual exploit demonstration
+- Helper functions for token minting, position setup, etc.
 
-  `Excellent — the {vulnType} exploitation on {domain} was successful. Time to think about what this means strategically.
+The critical assertion: {foundryAssert}
 
-Result: {exploitResult}
+This assertion captures the core impact -- if it passes, the vulnerability is confirmed. If it fails, either the vulnerability doesn't exist or my test setup is wrong.
 
-As a penetration tester, my job isn't just to pop a shell — it's to demonstrate business risk. Let me think about this from the client's perspective:
+For {pocType} testing:
+- If unit: I deploy mock contracts and test in isolation
+- If fork: I fork mainnet at a specific block where {protocolName} is deployed and test against real state
+- If fuzz: I use invariant testing with {funcNames} as entry points, running thousands of random sequences
+- If invariant: I define protocol invariants (e.g., "total supply must equal sum of all balances") and let Echidna/Foundry try to break them
 
-Technical impact:
-- I've achieved code execution as {osUser} on a {techs} application server
-- The {dbType} database likely contains user data, transaction records, or other business-critical information
-- From this foothold, the next steps ({nextSteps}) would each represent an escalation of business impact
+The test should compile and run cleanly. Let me also think about edge cases -- what if the attacker tries to exploit this multiple times? Does the first exploit prevent subsequent ones? Or can it be repeated infinitely?
 
-Business impact translation:
-- Data breach: If the database contains PII (which most production databases do), this is a reportable data breach under GDPR, CCPA, and similar regulations
-- Financial: Depending on what data I can access, this could include payment information (PCI-DSS scope)
-- Reputation: A public disclosure of this vulnerability being exploited would damage customer trust
-- Regulatory: Fines and mandatory breach notification costs
+An infinite repeat exploit is always worse than a one-time exploit. Let me make sure the test captures the worst case.`,
 
-I'm documenting every step of the exploitation chain because the client needs to understand not just THAT they're vulnerable, but HOW an attacker would progress through their systems. This attack narrative is what makes the difference between a mediocre pentest report and one that actually drives security improvements.`,
+  `Time to write the exploit test. I want this test to be so clear that anyone reading the audit report can immediately understand the vulnerability.
+
+Test structure (Foundry/Forge):
+
+  setUp() -> Deploy {contractName}, initialize state, fund attacker
+  test_{vulnType}() ->
+      1. Record attacker's balance (before)
+      2. Attacker calls {affectedFunction} exploiting {missingCheck}
+      3. Record attacker's balance (after)
+      4. {foundryAssert}
+
+The beauty of a good PoC test is that it tells the story without words. The code itself is the proof.
+
+Now, for this specific {vulnType} in {protocolName}, the test needs to show:
+- The attack vector: calling {affectedFunction} without {missingCheck}
+- The attack outcome: {impactType}
+- The quantifiable damage: {beforeState} -> {afterState}
+
+Since pocType = {pocType}, I'll {pocTypeText}.
+
+The {exploitComplexity} complexity rating means the test {complexityText}.
+
+Let me write the full test now with all the realistic state setup.`,
 ];
 
-const FAILURE_THINKING_TEMPLATES = [
-  `The {whatFailed} approach on {domain} didn't work as expected.
+const IMPACT_TEMPLATES = [
+  `The exploit works in isolation. Now I need to quantify the real-world impact on {protocolName}.
 
-What happened: {why}
+Protocol context:
+- TVL: {tvl}
+- {affectedToken} price: {tokenPrice}
+- Vulnerability: {vulnType} in {affectedFunction}
 
-This is actually valuable information. Let me analyze why it failed and what that tells me about the target's security:
+Let me think about this from an attacker's perspective. What's the maximum profit they can extract?
 
-1. The failure mode suggests {pivotReason}
-2. This narrows down what the target IS doing right (credit where due) and where the gaps might be
+Attack Scenario 1 -- Direct drain:
+The attacker can {impact1}. With {tvl} in the protocol, even a partial drain could yield millions in profit. The limiting factors are:
+- Capital required: the attacker needs some initial position to exploit
+- Speed: how many blocks before the protocol or community notices and reacts
+- MEV: would searchers front-run the exploit, reducing the attacker's profit but amplifying the total damage
 
-My pivot strategy:
-Instead of pushing harder on the same vector, I should {alternativeApproach}.
+Attack Scenario 2 -- Protocol manipulation:
+Beyond direct theft, the attacker could {impact2}. This is harder to quantify but potentially more damaging. If {affectedToken} crashes due to loss of confidence, all holders are affected, not just those directly exploited.
 
-Why this alternative might work:
-- The current defense seems to be looking for {whatFailed} patterns specifically
-- But security is about defense in depth — there might be gaps in adjacent functionality
-- The {techs} framework has other common weakness patterns I haven't tested yet
+Attack Scenario 3 -- Cascading failure:
+In the worst case, the attacker could {impact3}. Given that {protocolName} likely integrates with other DeFi protocols (lending platforms, AMMs, aggregators), a failure here could propagate.
 
-What I've learned from this failure:
-- The developers are at least somewhat security-conscious (they've addressed the most obvious attack)
-- There's likely a WAF or input validation layer that I need to account for
-- I should shift from "loud" scanning to more targeted, manual testing
+Worst-case scenario: {worstCase}
 
-This is a normal part of a penetration test. Not every attack succeeds on the first try. The skill is in adapting your approach based on what the target tells you through its defensive responses. A good pentester learns as much from failures as from successes.
+Severity assessment:
+Given the {tvl} at risk and the ability to cause {impactType}, this finding rates as {severity}. The CVSS factors:
+- Attack Vector: Network (anyone with an EOA can exploit)
+- Attack Complexity: Depends on {complexityDesc}
+- Privileges Required: None (or minimal, depending on the specific access control gap)
+- User Interaction: None
+- Scope: {scopeText}
+- Confidentiality: High (if sensitive state is exposed)
+- Integrity: High (protocol state is corrupted)
+- Availability: {availabilityText}
 
-Let me try the alternative approach now.`,
+Users affected: {usersAffected}. This is not a theoretical risk -- real user funds are on the line.`,
 
-  `Hmm, {whatFailed} failed on {domain}. Let me step back and reassess.
+  `Impact quantification for the {vulnType} finding in {contractName}.
 
-Failure details: {why}
+Let me be precise about the numbers.
 
-Root cause analysis:
-Looking at this objectively, the failure could mean:
-a) The vulnerability doesn't exist here (true negative)
-b) The vulnerability exists but my payload/technique was wrong (false negative)
-c) There's a security control blocking my specific approach (bypassable)
+Protocol TVL: {tvl}. This is the total value at risk. Even if the attacker can't drain everything, any amount above zero is unacceptable for a vulnerability of this nature.
 
-Given what I know about the {techs} stack, option (b) or (c) is more likely because:
-{pivotReason}
+The {affectedToken} token is trading at {tokenPrice}. If the exploit affects token supply dynamics (minting, burning, transferring), the market impact could far exceed the direct theft amount. Confidence-driven sell pressure can wipe out billions in market cap even from a relatively small direct exploit.
 
-My adjusted approach: {alternativeApproach}
+The attack chain:
+1. {impact1}
+2. {impact2}
+3. {impact3}
 
-What experienced pentesters do differently is they don't give up at the first roadblock. They:
-1. Carefully analyze the error/block response for clues about the defense
-2. Try the same vulnerability class with different techniques
-3. Test adjacent parameters or endpoints that might share vulnerable code
-4. Look for inconsistencies in the defensive controls (e.g., POST is filtered but GET isn't)
+Each step compounds the damage. Step 1 gives the attacker initial profit. Step 2 amplifies it by manipulating protocol mechanics. Step 3 is the cascading failure that affects the broader ecosystem.
 
-The key insight is that security controls are rarely perfect. They protect against known patterns, but creative variations or unusual code paths often slip through. That's exactly what we're testing.
+Worst case: {worstCase}
 
-Moving to the alternative approach now. If this also fails, I'll document both attempts in the report because it shows the client what their defenses CAN stop — which is valuable information for their security team.`,
+I also need to consider:
+- Can the attacker do this repeatedly? If the vulnerability doesn't self-close after exploitation, the total damage could be unlimited.
+- Can other attackers copy the exploit? Once public, anyone can replicate it, turning a single-attacker scenario into a free-for-all.
+- Is there a recovery path? If the protocol has a pause mechanism, timelock, or multisig that could respond, the damage is bounded by response time. If not, the damage is irreversible.
 
-  `{whatFailed} was blocked on {domain}. This is interesting — let me think about why.
+Final severity: {severity}. The combination of {tvl} at risk, {impactType} as the mechanism, and irreversible state corruption puts this at the top of the severity scale.
 
-What I tried: {whatFailed}
-What happened: {why}
+Recommendation priority: P0 -- fix before any further deployments or upgrades.`,
 
-My analysis:
-The fact that this was specifically blocked (rather than just failing silently) tells me:
-- The application has active security controls targeting this attack class
-- The response behavior reveals what type of filtering is in place
-- {pivotReason}
+  `Now for the most important part of any audit finding: what's the actual damage?
 
-This is a cat-and-mouse situation. The defense is:
-- Pattern matching against known attack signatures
-- Input validation on specific characters or strings
-- WAF rules at the network/application layer
+With {protocolName} holding {tvl} in TVL, the {vulnType} vulnerability in {affectedFunction} is not an academic concern.
 
-Where defenses typically have gaps:
-- Double encoding (URL encode the URL-encoded payload)
-- Unicode normalization bypasses
-- Multipart form data vs URL-encoded body
-- HTTP method switching (GET → POST → PUT)
-- Header-based injection (when body is filtered)
-- Second-order contexts (inject in one place, trigger in another)
-- Timing-based attacks (no visible payload in response)
+Direct financial impact:
+An attacker exploiting this vulnerability could {impact1}. At current prices ({affectedToken} at {tokenPrice}), this translates to a direct loss of user funds that may or may not be recoverable.
 
-My next move: {alternativeApproach}
+Secondary impact:
+The attacker could also {impact2}. This is significant because it affects the protocol's core mechanics, not just individual user balances. If the protocol can't perform its basic function correctly, it's fundamentally broken.
 
-Even if I ultimately can't bypass the control, documenting the attempt helps the client understand their defensive coverage. I'll note in the report: "Tested for {whatFailed} — the following controls were observed: [details]. Bypass attempted via [technique] — [result]."
+Tertiary impact (ecosystem):
+The attacker could {impact3}. For DeFi protocols, this is the nightmare scenario. Composable protocols create implicit dependencies -- a failure in one protocol can cascade to all protocols that depend on it.
 
-Good security testing isn't about always finding vulnerabilities. It's about thoroughly testing the controls and honestly reporting what held up and what didn't.`,
+Who is affected: {usersAffected}
+
+The {severity} rating is justified by:
+1. Direct financial loss potential: {tvl} is at risk
+2. Number of affected users: potentially all protocol users
+3. Irreversibility: blockchain state changes cannot be undone without governance intervention
+4. Exploit accessibility: the vulnerability can be exploited by anyone with {complexityDesc}
+
+Worst case: {worstCase}
+
+This finding requires immediate remediation. No new deployments should proceed until this is fixed.`,
 ];
 
-const POST_EXPLOIT_THINKING_TEMPLATES = [
-  `I've established a {accessLevel} foothold on {domain}. Now I need to think strategically about post-exploitation.
+const REPORT_TEMPLATES = [
+  `Compiling the full audit finding for {protocolName}.
 
-Current position:
-- Access level: {accessLevel}
-- Technology: {techs}
-- Database: {dbType}
+Finding title: {vulnType} in {affectedFunction} allows {impactType}
+Severity: {severity}
+SWC Reference: {swcId}
+CWE Reference: {cweId}
+CVSS 3.1 Vector: {cvssVector}
 
-Post-exploitation objectives (in order of priority):
-1. CREDENTIAL HARVESTING: Look for hardcoded credentials, API keys, and tokens
-   - Application config files likely contain {dbType} connection strings
-   - Environment variables often hold {sensitiveData}
-   - Check .bash_history, .ssh/, .aws/ for previous admin activities
+Report structure:
 
-2. INTERNAL RECONNAISSANCE: Map the internal network
-   - What internal services are reachable? I'll check for {internalServices}
-   - Are there other application servers, databases, or management interfaces?
-   - Cloud metadata endpoint (169.254.169.254) — if this is a cloud instance, I might get IAM credentials
+1. Overview
+   The {contractName} contract in the {protocolName} protocol contains a {severity}-severity vulnerability. The {vulnType} issue in {affectedFunction} allows an attacker to achieve {impactType}.
 
-3. DATA IMPACT ASSESSMENT: What sensitive data can I access?
-   - The {dbType} database likely contains: {sensitiveData}
-   - I need to quantify the breach — how many records? What sensitivity level?
-   - This determines the regulatory impact (GDPR, PCI-DSS, HIPAA)
+2. Vulnerability Description
+   The {affectedFunction} function does not implement {missingCheck}. This allows any caller to trigger {vulnType}, resulting in {impactType}. The vulnerability exists because the function assumes conditions that are never enforced by the code.
 
-4. PERSISTENCE EVALUATION (assess only, don't implement):
-   - Could an attacker maintain access through reboots?
-   - SSH key injection, cron jobs, web shells — I'll document what's POSSIBLE
+3. Impact Assessment
+   An attacker can exploit this vulnerability to cause {impactType}. With the protocol's current TVL, the potential financial impact is significant. The vulnerability affects all users who interact with the protocol through {affectedFunction}.
 
-5. LATERAL MOVEMENT ASSESSMENT:
-   - Can I reach other hosts from here?
-   - Are there shared credentials or trust relationships?
-   - Could I pivot to more sensitive systems?
+4. Proof of Concept
+   I've included a Foundry test that demonstrates the exploit. The test shows the protocol state before the attack, executes the exploit, and verifies the damage. Running "forge test --match testExploit_{vulnType} -vvv" will reproduce the finding.
 
-Every finding here goes into the report as "post-exploitation impact" — showing the client what an attacker would do AFTER the initial compromise. This is often more impactful than the initial vulnerability itself.`,
+5. Recommended Fix
+   {fixDescription}. The corrected function should:
+   - Validate all inputs at the function entry point
+   - Apply appropriate access control modifiers
+   - Follow the Checks-Effects-Interactions pattern
+   - Emit events for all state-changing operations
 
-  `{accessLevel} access achieved on {domain}. Let me think about what this means from an attacker's perspective.
+6. Secure Code Snippet
+   I'll include the corrected version of {affectedFunction} with {missingCheck} properly implemented.
 
-An adversary who reached this point would be thinking about:
+7. References
+   - SWC Registry: {swcId}
+   - CWE: {cweId}
+   - CVSS: {cvssVector}
 
-1. ESTABLISHING PERSISTENCE — I need to document HOW an attacker would maintain access:
-   - Plant an SSH key in authorized_keys (if SSH is available)
-   - Create a webshell in a static assets directory
-   - Add a cron job for callback
-   - Modify an existing application route as a backdoor
-   Note: I'll assess these vectors but NOT actually implement them. I'll document the feasibility.
+Let me make sure the report is clear enough for both technical and non-technical readers. The severity rating, impact description, and fix recommendation need to be unambiguous.`,
 
-2. MOVING LATERALLY — What else can I reach?
-   - Internal services I can see: {internalServices}
-   - The {dbType} database server is likely on the same network segment
-   - Cloud metadata might give me API credentials for broader access
-   - Any internal documentation or wiki might reveal network architecture
+  `Writing up the audit report for {protocolName} -- {contractName} {vulnType} finding.
 
-3. COVERING TRACKS — A real attacker would:
-   - Clear log entries for their commands
-   - Modify timestamps on changed files
-   - Use existing legitimate processes to blend in
-   Note: I'm documenting these techniques so the client's SOC team knows what to look for.
+Severity: {severity}
 
-4. DATA STAGING AND EXFILTRATION:
-   - Sensitive data accessible: {sensitiveData}
-   - An attacker would typically compress and encrypt the data, then exfiltrate via DNS, HTTPS, or cloud storage
-   - The absence of DLP controls means data could leave the network undetected
+This is one of the most impactful findings from this audit. Let me structure it properly.
 
-This post-exploitation phase demonstrates the true impact of the initial vulnerability. A SQL injection that "only reads data" becomes a full infrastructure compromise when you follow the attack chain to its logical conclusion.`,
+Title: {impactType} via {vulnType} in {contractName}.{affectedFunction}
+
+The finding has four components:
+1. WHAT: The {affectedFunction} function is vulnerable to {vulnType}
+2. WHY: {missingCheck} is not enforced, allowing exploitation
+3. HOW: An attacker calls {affectedFunction} under conditions that trigger {impactType}
+4. IMPACT: {impactType}, affecting protocol users and deposited funds
+
+The fix is straightforward: {fixDescription}. This is a low-effort, high-impact remediation -- the code change is minimal (a modifier addition or input validation check), but it closes the vulnerability completely.
+
+I'll reference the following standards:
+- {swcId} (Smart Contract Weakness Classification)
+- {cweId} (Common Weakness Enumeration)
+- CVSS 3.1: {cvssVector}
+
+The PoC test is included as supplementary material. Running it should produce a clear pass/fail: pass = vulnerability confirmed, fail = either fixed or false positive.
+
+For the secure code snippet, I'll show the before (vulnerable) and after (fixed) versions side by side so the development team can see exactly what changed.
+
+This finding, combined with any other findings from the audit, should be prioritized by severity. {severity} findings are P0 -- they block deployment until resolved.`,
+
+  `Finalizing the audit report for {protocolName}.
+
+The {vulnType} finding in {affectedFunction} is rated {severity}. Here's the complete writeup:
+
+Executive Summary (for non-technical readers):
+A security vulnerability was discovered in the {contractName} smart contract. The vulnerability could allow an attacker to cause {impactType}. We recommend fixing this issue before deploying to production.
+
+Technical Details (for developers):
+- Contract: {contractName} ({protocolName})
+- Function: {affectedFunction}
+- Vulnerability: {vulnType}
+- Root cause: {missingCheck}
+- Attack path: Any caller -> {affectedFunction} -> {impactType}
+- References: {swcId}, {cweId}, {cvssVector}
+
+Impact:
+The vulnerability enables {impactType}. The severity is {severity} because the vulnerability is directly exploitable and affects core protocol functionality.
+
+Remediation:
+{fixDescription}. The fix involves minimal code changes but has significant security impact. We recommend implementing this fix and running the full test suite before redeploying.
+
+PoC:
+A Foundry test is provided that demonstrates the vulnerability. The test deploys the contract, sets up realistic state, executes the exploit, and verifies the damage.
+
+I'm satisfied this finding is accurate, reproducible, and clearly communicated. Moving to the next finding.`,
 ];
 
-const REPORT_THINKING_TEMPLATES = [
-  `Time to compile my findings for the {domain} engagement. Let me think about how to present this effectively.
+const FAILURE_TEMPLATES = [
+  `The test reverted with {error}. Let me analyze: is this a legitimate block (the vulnerability doesn't exist) or a test setup issue?
 
-Primary finding: {vulnType} ({severity})
-Attack chain: {chainedFindings}
-CVSS Vector: {cvssVector}
+Looking at the trace, the revert happens at {location}. This could mean {hypothesis}.
 
-Report strategy:
-I need to translate technical findings into language that resonates with different audiences:
+Let me work through this methodically:
 
-For the CISO/executives:
-- Lead with business impact, not technical details
-- Quantify the risk: how many user records exposed, what type of data, regulatory implications
-- Reference relevant compliance frameworks: {complianceImpact}
-- Use risk ratings they understand (Critical/High/Medium/Low)
+Possibility 1: My test setup is wrong
+- Did I correctly deploy and initialize the {contractName} contract?
+- Did I fund the attacker address with enough tokens/ETH?
+- Did I set the right function parameters?
+- Is the fork block number correct (if fork testing)?
 
-For the development team:
-- Provide exact vulnerable code locations and parameters
-- Show the specific payloads that worked (reproducible PoCs)
-- Give concrete remediation guidance with code examples
-- Reference secure coding standards (OWASP, SANS)
+If any of these are wrong, the revert is a test artifact, not a protocol behavior.
 
-For the security/SOC team:
-- Detail the attack indicators they should monitor for
-- Suggest detection signatures/rules
-- Recommend immediate compensating controls while fixes are developed
-- Provide IOCs from the testing
+Possibility 2: The vulnerability doesn't exist
+- The revert at {location} suggests the protocol has a check I didn't account for
+- If {hypothesis}, then my analysis was incorrect and this finding should be dismissed
+- But I should double-check before dismissing -- maybe the check is incomplete and can be bypassed differently
 
-Report quality checklist:
-- Every finding has: title, severity, CVSS score, description, reproduction steps, evidence, impact, remediation
-- No false positives (everything I report has been confirmed manually)
-- Remediation guidance is actionable and specific (not just "fix the bug")
-- Executive summary tells the story without technical jargon
-- Risk ratings are consistent and defensible
+Possibility 3: Partial vulnerability
+- The check at {location} prevents my specific attack vector, but a variant might still work
+- For example, if the check validates amount > 0, I could try amount = 0 to see if that bypasses the logic
+- Or if the check is on msg.sender, I could try calling through a different contract
 
-The {vulnType} finding chain ({chainedFindings}) is the centerpiece of this report. I need to show how an initial seemingly-moderate vulnerability escalated to a {severity} issue through chaining.`,
+Next step: {nextStep}. I won't give up on this finding until I've exhausted all reasonable approaches.`,
 
-  `Let me organize my findings for the {domain} report.
+  `Test failed. {error} at {location}. Let me debug.
 
-Assessment summary:
-- Main vulnerability: {vulnType}
-- Severity: {severity}
-- Full chain: {chainedFindings}
+First question: did I set up the test correctly? Let me check:
+- Contract deployment: verified
+- Initial state: matches expected preconditions
+- Function call: correct signature and parameters
+- Attacker setup: has necessary tokens/approvals
 
-CVSS Scoring rationale:
-Vector: {cvssVector}
-I need to justify each component:
-- Attack Vector (AV): Network — exploitable remotely over the internet
-- Attack Complexity (AC): Based on whether special conditions are needed
-- Privileges Required (PR): What access level is needed to exploit
-- User Interaction (UI): Does the attack require a victim to do something?
-- Scope (S): Does exploiting this affect resources beyond the vulnerable component?
-- CIA Impact: Based on what data/systems were actually accessed
+If the setup is correct, then the revert tells me something about the protocol's actual behavior:
+- {hypothesis}
 
-Compliance mapping:
-{complianceImpact}
-These frameworks are relevant because the client operates in a regulated industry. The findings may trigger mandatory reporting or audit requirements.
+This is an important learning moment. If the vulnerability doesn't exist, I need to understand why I thought it did. Was it a misreading of the code? A false positive from static analysis? An assumption about missing checks that turned out to be wrong?
 
-Remediation priority:
-1. IMMEDIATE (0-48 hours): Patch the {vulnType} vulnerability, rotate any exposed credentials
-2. SHORT-TERM (1-2 weeks): Implement compensating controls (WAF rules, rate limiting, additional logging)
-3. MEDIUM-TERM (1-3 months): Address root causes (secure coding training, code review process, automated SAST/DAST)
-4. LONG-TERM: Establish continuous security testing program, implement defense-in-depth architecture
+Let me re-examine the source code of {affectedFunction} with fresh eyes, knowing that {location} is enforcing a check I didn't account for.
 
-I'll present the chain {chainedFindings} as a single narrative so the client understands how attackers think and why fixing just one link isn't sufficient.`,
-];
+Alternatively: {nextStep}.
 
-// ============================================================
-// Evasion & Advanced Technique Thinking Templates
-// ============================================================
+I'll document this failed attempt in my notes -- even negative results are valuable. They tell me what doesn't work, which narrows the search space.`,
 
-const EVASION_THINKING_TEMPLATES = [
-  `The WAF on {domain} is catching my payloads. Time to think about bypass strategies.
+  `Hmm, the exploit test didn't work as expected. Revert: {error}.
 
-Observed WAF behavior:
-- Technology: {techs} stack with what appears to be {alternativeApproach}
-- Block pattern: My payloads return {why}
-- Timing: Blocks happen within {whatFailed}
+Location: {location}.
 
-WAF bypass techniques I should try:
-1. **Encoding chains**: Double URL encode → Unicode normalization → UTF-8 overlong encoding
-2. **HTTP method switching**: The WAF may only filter certain methods — try PUT, PATCH, or even CONNECT
-3. **Content-Type confusion**: Switch between application/json, application/x-www-form-urlencoded, and multipart/form-data
-4. **Chunked Transfer-Encoding**: Break the payload across multiple chunks so the WAF can't reassemble it
-5. **Header pollution**: Add duplicate headers or use case variations (Content-Type vs content-type)
-6. **Parameter pollution**: Send the same parameter twice — the WAF processes one, the backend processes the other
-7. **Null byte injection**: Insert %00 to truncate WAF pattern matching
-8. **IP rotation**: If it's IP-based blocking, rotate source through different proxy chains
+Analysis:
+This revert means one of two things:
 
-The key insight is that WAFs and application backends parse HTTP differently. The goal is to craft a request that:
-- Looks benign to the WAF's parser
-- Gets interpreted as malicious by the application's parser
-This parser differential is the fundamental weakness of all WAF-based defenses.
+Scenario A -- The vulnerability is real but my exploit is wrong:
+Maybe {hypothesis}. In this case, the vulnerability exists but my specific attack vector is blocked by {location}. I need to find an alternative path -- perhaps calling through an intermediate contract, or manipulating state through a different function first.
 
-Let me start with encoding-based bypass since it has the highest success rate against {techs} stacks.`,
+Scenario B -- The vulnerability doesn't exist:
+The check at {location} legitimately prevents the exploit. If this check was in the code all along and I missed it, this is a false positive. If the check was added in a recent commit, maybe the vulnerability existed in an earlier version.
 
-  `Interesting defense posture on {domain}. I'm being blocked but the block itself is informative.
+Let me check the git history for {contractName} to see if {affectedFunction} was recently modified. If it was, the vulnerability might have already been fixed.
 
-What the block response tells me:
-- Response code: This narrows down the WAF vendor/type
-- Error message: {why}
-- Timing: {whatFailed}
+Either way: {nextStep}.
 
-My evasion playbook for this scenario:
-1. **Identify the WAF** — The response fingerprint matches {pivotReason}. Each WAF has known bypasses.
-2. **Test edge cases** — Boundary conditions where the WAF regex fails:
-   - Very long payloads (buffer overflow in WAF regex engine)
-   - Unicode characters that normalize to ASCII injection chars
-   - JSON with deeply nested objects that exceed WAF parsing depth
-   - Payloads split across multiple HTTP parameters
-3. **Timing-based approach** — Even if the response is blocked, timing differences can leak information:
-   - If the server processes the payload BEFORE the WAF blocks: timing varies with payload complexity
-   - If the WAF is inline: timing is constant regardless of payload
-4. **Alternative channels** — Try:
-   - WebSocket connections (often bypass WAF entirely)
-   - GraphQL mutations instead of REST endpoints
-   - File upload functionality for payload delivery
-   - Out-of-band techniques (DNS/HTTP callbacks)
-
-The difference between a junior and senior pentester is that a junior gives up when blocked. A senior sees blocks as information and adapts methodically.
-
-Next attempt: {alternativeApproach}`,
-
-  `Multiple attacks blocked on {domain}. Let me reassess from first principles.
-
-Failure log:
-- {whatFailed}: {why}
-- Defense appears to be: {pivotReason}
-
-Rather than brute-forcing through the front door, let me think about the ARCHITECTURE:
-1. Is there a CDN/load balancer I can bypass to hit the origin directly?
-2. Are there internal API endpoints accessible through SSRF that skip the WAF?
-3. Does the application have WebSocket endpoints? These often lack WAF coverage.
-4. Are there legacy API versions (v1) that predate the WAF rules?
-5. Can I find the origin IP through DNS history, certificate transparency, or Shodan?
-6. Does the cloud infrastructure expose direct paths that bypass the WAF?
-
-The {techs} stack running on {domain} likely has:
-- An edge layer (CDN/WAF) that I'm hitting now
-- An application layer behind it that may have different parsing rules
-- Internal microservices that trust inter-service traffic
-
-If I can bypass the edge layer — through origin IP discovery, alternative protocols, or authorized internal endpoints — the application-layer defenses might be significantly weaker.
-
-This is the "assume breach" mindset: if the front door is locked, check the windows, the back door, the garage, and the doggy door.`,
-];
-
-export const ALL_THINKING_TEMPLATES = [
-  ...RECON_THINKING_TEMPLATES,
-  ...ENUM_THINKING_TEMPLATES,
-  ...VULN_THINKING_TEMPLATES,
-  ...EXPLOIT_THINKING_TEMPLATES,
-  ...FAILURE_THINKING_TEMPLATES,
-  ...POST_EXPLOIT_THINKING_TEMPLATES,
-  ...REPORT_THINKING_TEMPLATES,
-  ...EVASION_THINKING_TEMPLATES,
+I'll either document this as a dismissed finding with reasoning and continue, or investigate further and update my assessment.`,
 ];

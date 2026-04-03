@@ -1,21 +1,23 @@
-// Combine all scenario categories
+// Combine all smart contract scenario categories
 
-export type { ScenarioTemplate, AttackPhase } from "./types.js";
+export type { ScenarioTemplate, AttackPhase, ContractProfile, StateVar, FuncDef, AuditFinding } from "./types.js";
 
 import type { ScenarioTemplate } from "./types.js";
-import { OWASP_SCENARIOS } from "./owasp.js";
-import { MODERN_ATTACK_SCENARIOS } from "./modern.js";
-import { API_SECURITY_SCENARIOS } from "./api.js";
-import { ADVANCED_SCENARIOS } from "./advanced.js";
+import { DEFI_SCENARIOS } from "./defi.js";
+import { GOVERNANCE_SCENARIOS } from "./governance.js";
+import { CROSSCHAIN_SCENARIOS } from "./crosschain.js";
+import { NFT_SCENARIOS } from "./nft.js";
+import { CORE_SCENARIOS } from "./core.js";
 
 export const ALL_SCENARIOS: ScenarioTemplate[] = [
-  ...OWASP_SCENARIOS,
-  ...MODERN_ATTACK_SCENARIOS,
-  ...API_SECURITY_SCENARIOS,
-  ...ADVANCED_SCENARIOS,
+  ...DEFI_SCENARIOS,
+  ...GOVERNANCE_SCENARIOS,
+  ...CROSSCHAIN_SCENARIOS,
+  ...NFT_SCENARIOS,
+  ...CORE_SCENARIOS,
 ];
 
-export { OWASP_SCENARIOS, MODERN_ATTACK_SCENARIOS, API_SECURITY_SCENARIOS, ADVANCED_SCENARIOS };
+export { DEFI_SCENARIOS, GOVERNANCE_SCENARIOS, CROSSCHAIN_SCENARIOS, NFT_SCENARIOS, CORE_SCENARIOS };
 
 export function getScenariosByCategory(category: string): ScenarioTemplate[] {
   return ALL_SCENARIOS.filter(s => s.category === category || s.subcategory.includes(category));

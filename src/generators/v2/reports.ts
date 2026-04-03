@@ -1,153 +1,1085 @@
-// Report generation functions for Dataset Generator V2
+// Smart contract audit report generation for Dataset Generator V2
 
-import { SeededRNG, TargetProfile } from "../outputs/index.js";
+import { SeededRNG, ContractProfile, generateContractProfile } from "../outputs/index.js";
 import { ScenarioTemplate } from "../../templates/scenarios/index.js";
 import { variateText } from "./responses.js";
 
-// FIX #5 (reports): ALL reports now include CVSS vector, evidence, remediation with code
-export function generateUniqueReport(scenario: ScenarioTemplate, domain: string, profile: TargetProfile, rng: SeededRNG): string {
-  const severityMap: Record<string, string[]> = {
-    beginner: ["Medium (5.3)", "Medium (4.7)", "Medium (6.1)"],
-    intermediate: ["High (7.5)", "High (7.2)", "High (8.1)"],
-    advanced: ["Critical (9.1)", "Critical (8.8)", "Critical (9.4)"],
-    expert: ["Critical (9.8)", "Critical (9.6)", "Critical (10.0)"],
+/* ============================================================
+   Severity mapping — difficulty maps to realistic CVSS scores
+   ============================================================ */
+const severityMap: Record<string, string[]> = {
+  beginner: ["Medium (5.3)", "Medium (4.7)"],
+  intermediate: ["High (7.5)", "High (7.2)", "High (8.1)"],
+  advanced: ["Critical (9.1)", "Critical (8.8)", "Critical (9.4)"],
+  expert: ["Critical (9.8)", "Critical (9.6)", "Critical (10.0)"],
+};
+
+/* ============================================================
+   SWC / CWE reference tables by vulnerability type
+   ============================================================ */
+const swcMap: Record<string, string[]> = {
+  "reentrancy": ["SWC-107"],
+  "unauthorized-mint": ["SWC-105"],
+  "access-control-bypass": ["SWC-105", "SWC-119"],
+  "integer-overflow": ["SWC-101"],
+  "rounding-precision": ["SWC-118", "SWC-128"],
+  "signature-replay": ["SWC-121", "SWC-117"],
+  "storage-collision": ["SWC-124"],
+  "oracle-manipulation": ["SWC-132"],
+  "logic-error": ["SWC-102"],
+  "fee-bypass": ["SWC-118", "SWC-131"],
+  "initialization-missing": ["SWC-100", "SWC-112"],
+  "timelock-bypass": ["SWC-114", "SWC-116"],
+  "cross-chain-replay": ["SWC-121", "SWC-120"],
+  "dos-griefing": ["SWC-113"],
+  "mev-front-running": ["SWC-114"],
+  "decimal-mismatch": ["SWC-118", "SWC-128"],
+};
+
+const cweMap: Record<string, string[]> = {
+  "reentrancy": ["CWE-841"],
+  "unauthorized-mint": ["CWE-863", "CWE-284"],
+  "access-control-bypass": ["CWE-863", "CWE-284"],
+  "integer-overflow": ["CWE-190"],
+  "rounding-precision": ["CWE-682", "CWE-1339"],
+  "signature-replay": ["CWE-344", "CWE-841"],
+  "storage-collision": ["CWE-1242"],
+  "oracle-manipulation": ["CWE-345", "CWE-916"],
+  "logic-error": ["CWE-840", "CWE-682"],
+  "fee-bypass": ["CWE-682", "CWE-1339"],
+  "initialization-missing": ["CWE-908", "CWE-909"],
+  "timelock-bypass": ["CWE-362", "CWE-667"],
+  "cross-chain-replay": ["CWE-344", "CWE-841"],
+  "dos-griefing": ["CWE-400", "CWE-664"],
+  "mev-front-running": ["CWE-362", "CWE-367"],
+  "decimal-mismatch": ["CWE-682", "CWE-1339"],
+};
+
+const defaultSWC = ["SWC-102"];
+const defaultCWE = ["CWE-840"];
+
+/* ============================================================
+   Financial quantification helper
+   ============================================================ */
+function quantifiedImpact(rng: SeededRNG, tvl: string, tokenPrice: string, vulnType: string): { dollarAmount: string; impactDescription: string } {
+  const tvlNum = parseFloat(tvl.replace(/[$MB]/g, "").replace(/B/g, "")) * (tvl.includes("B") ? 1000 : tvl.includes("M") ? 1 : 1);
+  const priceNum = parseFloat(tokenPrice.replace(/[$,]/g, ""));
+
+  const theftPct = rng.pick([1.0, 2.5, 5.0, 8.3, 12.5, 15.0, 25.0, 50.0, 75.0, 100.0]);
+  const dollarLoss = (tvlNum * theftPct / 100);
+  const formattedLoss = dollarLoss >= 1000
+    ? `$${(dollarLoss / 1000).toFixed(1)}B`
+    : `$${Math.round(dollarLoss)}M`;
+
+  const impactDescriptions = rng.pick([
+    `An attacker could drain approximately ${formattedLoss} in TVL from the protocol, representing ${theftPct.toFixed(1)}% of total locked value. At current ${rng.pick(["token", "LP", "staking"])} prices, this equates to ~${Math.round(dollarLoss / priceNum).toLocaleString()} tokens stolen.`,
+    `The vulnerability allows extraction of ${formattedLoss} from the ${rng.pick(["liquidity pool", "vault", "staking contract", "bridge"])} — roughly ${theftPct.toFixed(1)}% of protocol TVL. Given the ${tokenPrice} token price, the attack yields approximately ${Math.round(dollarLoss / priceNum).toLocaleString()} tokens.`,
+    `Full exploitation results in a loss of ${formattedLoss}, equivalent to ${theftPct.toFixed(1)}% of the protocol's ${tvl} TVL. The attacker would receive ~${Math.round(dollarLoss / priceNum).toLocaleString()} ${rng.pick(["tokens", "assets"])} at the current price of ${tokenPrice}.`,
+    `Estimated maximum extractable value: ${formattedLoss} (${theftPct.toFixed(1)}% of ${tvl} TVL). Converted at ${tokenPrice}/token, the attacker gains ~${Math.round(dollarLoss / priceNum).toLocaleString()} tokens.`,
+  ]);
+
+  return { dollarAmount: formattedLoss, impactDescription: impactDescriptions };
+}
+
+/* ============================================================
+   CVSS 3.1 vector generator for smart contracts
+   ============================================================ */
+function generateCVSSVector(rng: SeededRNG, vulnType: string, complexity: string): string {
+  const av = "N"; // always network-accessible
+  const ac = (complexity === "complex" || vulnType === "mev-front-running") ? "H" : "L";
+  const pr = rng.pick(["N", "L", "L"]);
+  const ui = rng.pick(["N", "N", "N", "R"]);
+  const s = rng.pick(["C", "C", "U"]);
+  const c = rng.pick(["H", "H", "L"]);
+  const i = rng.pick(["H", "H", "L"]);
+  const a = rng.pick(["H", "H", "L"]);
+  return `CVSS:3.1/AV:${av}/AC:${ac}/PR:${pr}/UI:${ui}/S:${s}/C:${c}/I:${i}/A:${a}`;
+}
+
+/* ============================================================
+   SWC description generator
+   ============================================================ */
+function swcDescription(vulnType: string): string {
+  const descriptions: Record<string, string> = {
+    "reentrancy": "External call made before state update allows recursive re-entry, enabling the attacker to repeatedly invoke the function and drain funds.",
+    "unauthorized-mint": "The mint function lacks proper access control, allowing any address to call it and inflate the token supply without authorization.",
+    "access-control-bypass": "Missing or incorrectly implemented access control modifier permits unauthorized addresses to execute privileged functions.",
+    "integer-overflow": "Arithmetic operations lack overflow protection (Solidity <0.8.0 without SafeMath), enabling wraparound to manipulate balances or totals.",
+    "rounding-precision": "Integer division truncation causes systematic rounding errors that can be exploited to extract excess value on each operation.",
+    "signature-replay": "ECDSA signature verification does not enforce uniqueness via nonce or tracking, allowing the same signature to be replayed for multiple operations.",
+    "storage-collision": "Proxy and implementation contract storage layouts conflict, causing state variable overlap that can corrupt critical data or bypass access controls.",
+    "oracle-manipulation": "The price oracle uses a manipulable data source (e.g., spot price from a low-liquidity pool), allowing the attacker to artificially inflate or deflate asset valuations.",
+    "logic-error": "A flaw in the business logic creates an unintended code path that bypasses expected invariants, enabling unauthorized operations.",
+    "fee-bypass": "The fee calculation or collection mechanism can be circumvented through specific input patterns or arithmetic edge cases, causing protocol revenue loss.",
+    "initialization-missing": "The proxy or upgradeable contract's initialize() function is not called or lacks proper access control, leaving the contract in an uninitialized state exploitable by any caller.",
+    "timelock-bypass": "The timelock mechanism can be bypassed through direct function calls, proposal cancellation, or exploiting the governance upgrade path.",
+    "cross-chain-replay": "Messages or signatures valid on one chain can be replayed on another chain due to missing chainId binding or per-chain nonce tracking.",
+    "dos-griefing": "An attacker can cause a denial of service or grief other users by exploiting unbounded loops, block gas limits, or forced Ether sends.",
+    "mev-front-running": "Transaction ordering dependency allows miners/validators or MEV bots to front-run or sandwich user transactions for profit.",
+    "decimal-mismatch": "Token decimal places are incorrectly assumed or mismatched between contracts, causing calculations to be off by orders of magnitude.",
   };
+  return descriptions[vulnType] || `A security-critical check is missing in the contract's logic, allowing an attacker to exploit the ${vulnType} vulnerability to bypass intended behavior.`;
+}
 
+/* ============================================================
+   Public API: generateUniqueAuditReport
+   ============================================================ */
+export function generateUniqueAuditReport(scenario: ScenarioTemplate, profile: ContractProfile, rng: SeededRNG): string {
   const severity = rng.pick(severityMap[scenario.difficulty] || ["High (7.5)"]);
-  const tech = profile.technologies.join("/");
-  const cwes = (scenario.cve_references || []).join(", ");
-  // FIX: Always generate a full CVSS vector
-  const cvssVector = `CVSS:3.1/AV:N/AC:${rng.pick(["L", "H"])}/PR:${rng.pick(["N", "L", "H"])}/UI:${rng.pick(["N", "R"])}/S:${rng.pick(["U", "C"])}/C:${rng.pick(["H", "L", "N"])}/I:${rng.pick(["H", "L", "N"])}/A:${rng.pick(["H", "L", "N"])}`;
-  const param = rng.pick(profile.injectableParams);
-  const sub = rng.pick(profile.subdomains);
+  const severityLabel = severity.split(" (")[0];
+  const severityNum = parseFloat(severity.split("(")[1]?.replace(")", "") || "7.5");
+  const vulnType = profile.vulnType;
+  const swcs = swcMap[vulnType] || defaultSWC;
+  const cwes = cweMap[vulnType] || defaultCWE;
+  const cvssVector = generateCVSSVector(rng, vulnType, profile.exploitComplexity);
+  const impact = quantifiedImpact(rng, profile.tvl, profile.tokenPrice, vulnType);
 
-  // FIX: Every report ALWAYS has: CVSS vector, evidence/PoC, remediation with code
-  // Evidence PoC block — always included
-  const evidencePoC = `\n\n### Evidence / Proof of Concept\n\n\`\`\`bash\n# Reproduction command:\n${variateText(scenario.attack_phases[0]?.commands[0] || `curl -s https://${sub}.${domain}/api/${rng.pick(["users", "search", "data"])}?${param}=test`, domain, profile)}\n\`\`\`\n\n**Response confirming vulnerability:**\n\`\`\`\n${rng.pick(["HTTP/1.1 200 OK", "HTTP/2 500", "HTTP/1.1 302 Found"])}\n${rng.pick([`{"error":"${profile.databases.name} syntax error near '${param}'"}`, `{"users":[{"id":1,"email":"admin@${domain}","role":"admin"}]}`, `{"token":"eyJhbGciOiJub25lIn0...","role":"admin"}`, `uid=${rng.int(33, 1000)}(${rng.pick(["www-data", "app", "node"])}) gid=${rng.int(33, 1000)}`])}\n\`\`\``;
-
-  // Remediation with code — always included
-  const remediationCode = generateContextualRemediation(scenario.tags, profile, rng) + `\n\n**Secure code example:**\n\`\`\`${rng.pick(["python", "javascript", "java", "php"])}\n${rng.pick([
-    `# Use parameterized queries\ncursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))`,
-    `// Use prepared statements\nconst result = await db.query('SELECT * FROM users WHERE id = $1', [userId]);`,
-    `// Validate object ownership\nif (resource.ownerId !== authenticatedUser.id) {\n  return res.status(403).json({ error: 'Forbidden' });\n}`,
-    `# Validate redirect URI exactly\nif redirect_uri != registered_redirect_uri:\n    raise OAuth2Error("Invalid redirect_uri")`,
-    `// Block internal IPs for SSRF protection\nconst blocked = ['127.0.0.1', '169.254.169.254', '10.0.0.0/8'];\nif (isInternalIP(url)) throw new Error('Blocked');`,
-    `// Pin JWT algorithm\nconst decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] });`,
-  ])}\n\`\`\``;
+  const attackChainLines = scenario.attack_phases.map(
+    (p, i) => `${i + 1}. **${p.phase}:** ${p.description}`
+  ).join("\n");
 
   const reportStyles = [
-    // Style 1: Full professional report
-    `**Finding: ${scenario.title}**\n\n| Attribute | Value |\n|-----------|-------|\n| Severity | ${severity} |\n| CVSS Vector | ${cvssVector} |\n| CWE | ${cwes} |\n| Affected Endpoint | https://${sub}.${domain} |\n| Parameter | \`${param}\` |\n| Technology | ${tech} / ${profile.databases.name} |\n\n**Description:** ${scenario.description}\n\n**Attack Chain:**\n${scenario.attack_phases.map((p, i) => `${i + 1}. ${p.phase}: ${variateText(p.analysis, domain, profile).slice(0, 120)}`).join("\n")}${evidencePoC}\n\n### Impact\n\n- **Data at risk:** ${rng.int(1000, profile.userCount).toLocaleString()} user records including ${rng.pickN(["emails", "password hashes", "phone numbers", "addresses", "payment data", "SSNs"], 3).join(", ")}\n- **Compliance:** ${rng.pickN(["GDPR Article 32", "PCI-DSS 6.5", "HIPAA", "SOC 2 CC6.1"], 2).join(", ")}\n\n### Remediation\n\n${remediationCode}`,
-
-    // Style 2: Technical/developer-focused
-    `**${scenario.title}** — ${severity}\n\nCVSS: ${cvssVector}\nCWE: ${cwes}\nEndpoint: \`${rng.pick(["GET", "POST", "PUT"])} https://${sub}.${domain}/api/${rng.pick(["v1", "v2"])}/${rng.pick(["users", "search", "data", "auth"])}?${param}=\`\n\n${scenario.description}\n\n**Reproduction Steps:**\n\n${scenario.attack_phases.map((p, i) => `${i + 1}. ${p.description}\n   \`${variateText((p.commands[0] || "").slice(0, 100), domain, profile)}\``).join("\n")}${evidencePoC}\n\n### Impact Assessment\n\n${rng.pickN(["Unauthorized access to " + rng.int(1000, 50000) + " user records", "Remote code execution as " + rng.pick(["www-data", "app", "node"]), "Privilege escalation from user to admin", "Full " + profile.databases.name + " database compromise", "Cloud infrastructure credential theft", "Session hijacking of active users"], rng.int(3, 4)).map(s => `- ${s}`).join("\n")}\n\n### Fix\n\n${remediationCode}`,
-
-    // Style 3: Concise bug bounty
-    `**${scenario.title}**\n\nSeverity: ${severity} | CVSS: ${cvssVector} | CWE: ${cwes}\nTarget: https://${sub}.${domain} | Param: \`${param}\`\n\n${scenario.description}${evidencePoC}\n\n**Impact:** ${rng.pick(["Full database access", "Account takeover", "RCE as application user", "Authentication bypass", "PII exfiltration"])} affecting ~${rng.int(1000, profile.userCount).toLocaleString()} users.\n\n**Fix:**\n${remediationCode}`,
+    // Style 1: Full Professional Audit Report
+    generateProfessionalReport(scenario, profile, severity, severityLabel, severityNum, cvssVector, swcs, cwes, vulnType, impact, attackChainLines, rng),
+    // Style 2: Technical/Developer Report
+    generateTechnicalReport(scenario, profile, severity, severityLabel, severityNum, cvssVector, swcs, cwes, vulnType, impact, attackChainLines, rng),
+    // Style 3: Concise Bug Bounty Style
+    generateBugBountyReport(scenario, profile, severity, severityLabel, severityNum, cvssVector, swcs, cwes, vulnType, impact, attackChainLines, rng),
   ];
 
   return rng.pick(reportStyles);
 }
 
-export function generateContextualRemediation(tags: string[], profile: TargetProfile, rng: SeededRNG): string {
-  const fixes: string[] = [];
+/* ============================================================
+   Style 1: Full Professional Audit Report
+   ============================================================ */
+function generateProfessionalReport(
+  scenario: ScenarioTemplate,
+  profile: ContractProfile,
+  severity: string,
+  severityLabel: string,
+  severityNum: number,
+  cvssVector: string,
+  swcs: string[],
+  cwes: string[],
+  vulnType: string,
+  impact: { dollarAmount: string; impactDescription: string },
+  attackChainLines: string,
+  rng: SeededRNG,
+): string {
+  const pocCode = generatePoCSolidity(scenario, profile, vulnType, rng);
+  const codeFix = generateSecureCodeFix(vulnType, rng);
+  const affectedFunc = profile.externalFunctions.length > 0
+    ? rng.pick(profile.externalFunctions)
+    : { name: rng.pick(["stake", "withdraw", "claim", "mint", "bridge"]), visibility: "external", modifiers: [], params: [] };
+  const stateVar = profile.stateVariables.length > 0 ? rng.pick(profile.stateVariables) : { name: "totalSupply", type: "uint256", visibility: "public" };
 
-  if (tags.some(t => ["sqli", "injection"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Use parameterized queries** — Replace all string concatenation in ${profile.databases.name} queries with prepared statements or parameterized queries.\n2. **Input validation** — Implement strict allowlisting for expected input formats.\n3. **Least privilege** — The database user should only have SELECT/INSERT on required tables, not SUPERUSER.`,
-      `1. **Parameterized queries** — Every database interaction must use the ORM's parameterized query methods, never raw string interpolation.\n2. **WAF rules** — Deploy SQLi detection rules as an additional defense layer.\n3. **Database permissions** — Review and restrict the application database user's privileges.`,
-    ]));
-  }
+  return `**Smart Contract Audit Finding**
 
-  if (tags.some(t => ["xss", "stored-xss", "dom-xss"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Content Security Policy** — Deploy a strict CSP header that blocks inline scripts and restricts script sources.\n2. **Output encoding** — Use context-aware encoding for all user-generated content (HTML, JavaScript, URL, CSS contexts).\n3. **Sanitize markdown** — If allowing HTML in markdown, use a strict sanitizer like DOMPurify with allowlisted tags.`,
-      `1. **Output encoding** — Implement framework-level auto-escaping for all template rendering.\n2. **CSP** — Set \`Content-Security-Policy: default-src 'self'; script-src 'self'\` to prevent execution of injected scripts.\n3. **HttpOnly cookies** — Ensure all session cookies have the HttpOnly flag to prevent theft via XSS.`,
-    ]));
-  }
+| Attribute | Detail |
+|-----------|--------|
+| **Severity** | ${severity} |
+| **CVSS 3.1 Vector** | \`${cvssVector}\` |
+| **SWC Reference** | ${swcs.join(", ")} |
+| **CWE Reference** | ${cwes.join(", ")} |
+| **Contract** | \`${profile.contractName}\` at \`0x${profile.contractAddress.slice(0, 10)}...\` |
+| **Vulnerable Function** | \`${affectedFunc.name}()\` (${affectedFunc.visibility}) |
+| **Affected State Variable** | \`${stateVar.name}\` (${stateVar.type}) |
+| **Protocol** | ${profile.protocolName} (${rng.pick(["Ethereum", "Arbitrum", "Optimism", "Base", "Polygon", "BNB Chain"])} Chain ID: ${profile.chainId}) |
+| **Solidity Version** | v${profile.solidityVersion} |
+| **Protocol TVL** | ${profile.tvl} |
+| **Token Price** | ${profile.tokenPrice} |
 
-  if (tags.some(t => ["idor", "bola", "bfla", "access-control-bypass"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Object-level authorization** — Check that the authenticated user owns or is authorized to access the requested resource on EVERY API endpoint.\n2. **Use UUIDs** — Replace sequential numeric IDs with UUIDs to prevent enumeration.\n3. **Authorization middleware** — Implement centralized authorization logic rather than per-endpoint checks.`,
-      `1. **Authorization checks** — Every API endpoint must verify the requesting user's permission for the specific object.\n2. **Indirect references** — Map internal IDs to per-session tokens that can't be guessed or enumerated.\n3. **Automated testing** — Add authorization test cases to your CI/CD pipeline.`,
-    ]));
-  }
+**Description:** ${variateText(swcDescription(vulnType), profile.protocolName, profile as any)}
 
-  if (tags.some(t => ["ssrf", "cloud", "aws", "s3"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **URL allowlisting** — Only allow requests to pre-approved domains and IP ranges.\n2. **Block internal IPs** — Deny all requests to RFC 1918 addresses, link-local (169.254.x.x), and localhost.\n3. **IMDSv2** — Enable IMDSv2 on all EC2 instances to require session tokens for metadata access.`,
-      `1. **Network segmentation** — Isolate the application from the cloud metadata service and internal networks.\n2. **S3 Block Public Access** — Enable at the account level.\n3. **Rotate credentials** — Immediately rotate any AWS keys that were exposed.`,
-    ]));
-  }
+The \`${affectedFunc.name}()\` function in \`${profile.contractName}\` is missing a ${profile.missingCheck}. This allows an attacker to ${rng.pick(["exploit the vulnerability", "bypass the intended access restrictions", "manipulate the contract state", "extract funds from the protocol"])}.
 
-  if (tags.some(t => ["jwt", "authentication-bypass", "token-forgery"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Algorithm restriction** — Explicitly specify the allowed algorithm(s) in JWT verification. Never trust the alg header.\n2. **Strong secrets** — Use minimum 256-bit random secrets for HMAC, or 2048-bit RSA keys.\n3. **Short expiration** — Set token expiry to 15-60 minutes with refresh token rotation.`,
-      `1. **Pin the algorithm** — Hard-code the expected algorithm in verification, ignoring the token's alg header.\n2. **Key management** — Use a proper key management system, not hardcoded secrets.\n3. **Token validation** — Validate all claims (exp, iss, aud) and implement token revocation.`,
-    ]));
-  }
+**Attack Chain:**
 
-  if (tags.some(t => ["ssti", "template-injection", "rce"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Sandbox templates** — Never pass user input directly to template engines (Jinja2, Twig, Freemarker, etc.).\n2. **Input validation** — Restrict template context variables to a strict allowlist of safe types.\n3. **Disable dangerous features** — Disable autoescaping bypass, raw blocks, and native Python/Java object access in templates.`,
-      `1. **Use logic-less templates** — Prefer Mustache/Handlebars over Jinja2/Twig for user-controlled content.\n2. **Sandboxed rendering** — If template rendering is required, use a sandboxed environment with restricted builtins.\n3. **CSP** — Deploy strict Content-Security-Policy to limit the impact even if SSTI leads to XSS.`,
-    ]));
-  }
+${attackChainLines}
 
-  if (tags.some(t => ["nosql", "nosql-injection", "mongodb"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Input sanitization** — Strip MongoDB operators ($gt, $ne, $regex, etc.) from all user input.\n2. **Schema validation** — Use Mongoose/Joi schemas to enforce expected types (string, number) before querying.\n3. **Parameterized queries** — Use the MongoDB driver's built-in parameterization instead of building query objects from raw input.`,
-      `1. **Type checking** — Ensure all query parameters are the expected type (e.g., string not object).\n2. **Disable $where** — Never use $where or mapReduce with user-controlled input.\n3. **Least privilege** — The database user should only have access to required collections with minimal permissions.`,
-    ]));
-  }
+**Evidence / Proof of Concept:**
 
-  if (tags.some(t => ["xxe", "xml"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Disable DTD processing** — Set the XML parser to disallow Document Type Definitions entirely.\n2. **Disable external entities** — Configure XMLParser to reject external entity references (FEATURE_EXTERNAL_ENTITIES = false).\n3. **Use JSON** — Where possible, switch from XML to JSON for API communication to eliminate the XXE attack surface entirely.`,
-      `1. **Secure parser configuration** — For Java: set XMLConstants.FEATURE_SECURE_PROCESSING. For Python: use defusedxml. For PHP: libxml_disable_entity_loader(true).\n2. **Input validation** — Reject XML documents containing DOCTYPE declarations.\n3. **WAF rules** — Deploy WAF rules to block XML payloads containing entity declarations as a defense-in-depth measure.`,
-    ]));
-  }
+\`\`\`solidity
+${pocCode}
+\`\`\`
 
-  if (tags.some(t => ["file-upload", "unrestricted-upload", "webshell"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Content validation** — Validate file content (magic bytes), not just extension or MIME type.\n2. **Rename files** — Generate random filenames on upload, never use the client-provided name.\n3. **Separate storage** — Store uploads outside the webroot or on a separate domain/CDN with no script execution.\n4. **File type allowlist** — Only allow specific file types (e.g., .jpg, .png, .pdf) based on business requirements.`,
-      `1. **Magic byte validation** — Check actual file content signatures, not just the Content-Type header.\n2. **No execution** — Configure the web server to never execute scripts in the upload directory (disable PHP, CGI, etc.).\n3. **Size limits** — Enforce maximum file size and rate limits on upload endpoints.\n4. **Antivirus scanning** — Scan uploaded files with ClamAV or similar before making them accessible.`,
-    ]));
-  }
+**Impact:**
 
-  if (tags.some(t => ["kubernetes", "k8s", "container-escape", "docker"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Pod Security Standards** — Enforce restricted or baseline pod security standards at the namespace level.\n2. **RBAC least privilege** — Review and restrict ServiceAccount permissions. Never use cluster-admin for application pods.\n3. **Network policies** — Implement NetworkPolicies to restrict pod-to-pod communication.\n4. **No privileged containers** — Never run containers with privileged: true or hostPID/hostNetwork.`,
-      `1. **Read-only filesystem** — Set readOnlyRootFilesystem: true for all containers.\n2. **Drop capabilities** — Drop all capabilities and only add those explicitly needed.\n3. **Seccomp/AppArmor** — Apply seccomp profiles to restrict system calls.\n4. **Image scanning** — Scan all container images for vulnerabilities before deployment (Trivy, Grype).`,
-    ]));
-  }
+${impact.impactDescription}
 
-  if (tags.some(t => ["deserialization", "insecure-deserialization"].includes(t))) {
-    fixes.push(rng.pick([
-      `1. **Never deserialize untrusted data** — Use safe data formats (JSON) instead of native serialization (pickle, Java serialization, PHP unserialize).\n2. **Integrity checks** — If deserialization is required, sign serialized data with HMAC to prevent tampering.\n3. **Allowlist classes** — Configure the deserializer to only allow specific, safe classes to be instantiated.`,
-      `1. **Replace with JSON** — Migrate from native serialization to JSON or Protocol Buffers.\n2. **Look-ahead deserialization** — Use ObjectInputStream filters (Java 9+) to restrict which classes can be deserialized.\n3. **Monitor** — Log all deserialization events and alert on unexpected class instantiation.`,
-    ]));
-  }
+- **Protocol TVL at Risk:** ${profile.tvl}
+- **Token Price:** ${profile.tokenPrice}
+- **Attack Capital Required:** ${profile.requiresCapital > 0 ? `$${profile.requiresCapital.toLocaleString()}` : "No capital required — anyone can trigger this"}
+- **Exploit Complexity:** ${profile.exploitComplexity}
+- **Reproducibility:** ${rng.pick(["100% reproducible", "Deterministic with no external dependencies", "Reproducible on a mainnet fork"])}
 
-  // Default if no specific tags matched
-  if (fixes.length === 0) {
-    fixes.push(`1. **Input validation** — Validate all user-controlled input on the server side using strict allowlists.\n2. **Defense in depth** — Implement multiple layers of security controls rather than relying on a single mechanism.\n3. **Security testing** — Integrate automated security testing (SAST/DAST) into the CI/CD pipeline.\n4. **Monitoring** — Deploy comprehensive logging and alerting for security-relevant events.`);
-  }
+**Remediation:**
 
-  return fixes.join("\n\n");
+${codeFix}
+
+\`\`\`solidity
+${generateSecureCodeFix(vulnType, rng)}
+\`\`\`
+
+**Additional Recommendations:**
+
+1. ${rng.pick([`Add comprehensive unit tests covering the \`${affectedFunc.name}()\` function with edge cases for ${vulnType} scenarios.`, `Implement an invariant test using Echidna or Foundry to verify that the protocol's core invariants hold after this fix.`, `Add a Foundry fork test against mainnet state to confirm the fix prevents exploitation under realistic conditions.`])}
+2. ${rng.pick(["Engage an external auditor to verify the remediation before deploying to mainnet.", "Run the fix through Slither, Mythril, and other automated analysis tools to confirm no regressions.", "Consider adding a formal verification layer using Certora or the Solidity SMTChecker for critical invariants."])}
+3. ${rng.pick(["Deploy the fix through the protocol's timelock and governance process with a 48-hour delay for community review.", "Coordinate the upgrade with the protocol's multi-sig signers and ensure all stakeholders are aware of the security implications.", "Implement the fix as a minimal proxy patch if the contract is upgradeable, avoiding a full redeployment where possible."])}`;
 }
 
-// Deep Analysis Generator (for padding turns)
-export function generateDeepAnalysis(scenario: ScenarioTemplate, domain: string, profile: TargetProfile, rng: SeededRNG): string {
-  const analyses = [
-    `### Extended Analysis\n\nLooking deeper at the ${scenario.subcategory} finding on ${domain}:\n\n**Attack Surface Expansion:**\nThe ${profile.technologies.join("/")} application has ${rng.int(10, 50)} API endpoints, of which I've tested ${rng.int(5, 20)}. The vulnerability pattern I found likely extends to:\n- ${rng.pickN(profile.injectableParams, 3).map(p => `The '${p}' parameter on adjacent endpoints`).join("\n- ")}\n\nThis is because the vulnerable code is likely shared across multiple endpoints through ${rng.pick(["a common middleware function", "a shared data access layer", "a base controller class", "a utility function called from multiple routes"])}.\n\n**Detection Difficulty:**\nFrom a defender's perspective, this attack would be ${rng.pick(["difficult to detect because the requests appear as normal API usage", "moderately detectable through anomaly detection on request patterns", "visible in application logs but easily missed without specific monitoring rules", "nearly invisible without database query logging enabled"])}.\n\n**Recommended monitoring:**\n- ${rng.pick(["Monitor for unusual data access patterns (e.g., user A accessing user B's resources)", "Alert on high-volume API requests from a single session", "Log and monitor all failed authentication attempts with source IP correlation", "Implement database query logging and alert on unexpected SELECT/UPDATE patterns"])}`,
+/* ============================================================
+   Style 2: Technical/Developer Report
+   ============================================================ */
+function generateTechnicalReport(
+  scenario: ScenarioTemplate,
+  profile: ContractProfile,
+  severity: string,
+  severityLabel: string,
+  severityNum: number,
+  cvssVector: string,
+  swcs: string[],
+  cwes: string[],
+  vulnType: string,
+  impact: { dollarAmount: string; impactDescription: string },
+  attackChainLines: string,
+  rng: SeededRNG,
+): string {
+  const affectedFunc = profile.externalFunctions.length > 0 ? rng.pick(profile.externalFunctions) : { name: rng.pick(["stake", "withdraw", "claim", "mint"]), visibility: "external", modifiers: [], params: [] };
+  const foundryTest = generateFoundryTest(scenario, profile, vulnType, rng);
+  const gasAnalysis = generateGasAnalysis(vulnType, rng);
+  const lineRefStart = rng.int(45, 320);
+  const lineRefEnd = lineRefStart + rng.int(8, 45);
 
-    `### Risk Assessment Deep Dive\n\nFor ${domain} (${profile.technologies.join("/")} / ${profile.databases.name}):\n\n**Quantified Risk:**\n- Affected users: approximately ${rng.int(1000, profile.userCount).toLocaleString()} based on database sampling\n- Data sensitivity: ${rng.pick(["PII (names, emails, addresses)", "Financial data (payment methods, transactions)", "Healthcare data (patient records)", "Authentication credentials (password hashes)"])}\n- Estimated remediation effort: ${rng.int(2, 40)} developer hours for the primary fix, ${rng.int(5, 80)} hours for comprehensive hardening\n\n**Compensating Controls (while fix is developed):**\n1. Deploy a WAF rule targeting the specific attack pattern: \`${rng.pick(["Block requests containing SQL metacharacters in the identified parameter", "Rate limit API requests to max 100/minute per authenticated user", "Add additional logging on the vulnerable endpoint", "Implement IP-based anomaly detection for the affected service"])}\`\n2. ${rng.pick(["Enable enhanced logging on the affected endpoints for incident response readiness", "Temporarily restrict the affected endpoint to internal IPs only if feasible", "Add an additional authorization check at the load balancer level", "Deploy a canary token in the database to detect unauthorized access"])}\n3. ${rng.pick(["Brief the SOC team on indicators of compromise for this specific vulnerability", "Review access logs for the past 90 days for signs of prior exploitation", "Implement real-time alerting on the affected database tables", "Add the vulnerability signature to the SIEM correlation rules"])}`,
+  return `## ${scenario.title} — ${severity}
 
-    `### Alternative Attack Paths\n\nBeyond the primary ${scenario.subcategory} finding, I identified several related attack vectors on ${domain}:\n\n**Path 1: ${rng.pick(["API Version Downgrade", "Mobile API Bypass", "Internal API Exposure", "Debug Endpoint Abuse"])}**\n${rng.pick(["The v1 API endpoint appears to lack the security controls present in v2. An attacker could target the older version.", "The mobile API at /api/mobile/ may have reduced input validation compared to the web API.", "Internal API endpoints are accessible from the public network due to misconfigured routing.", "Debug endpoints are still active in the production deployment and expose sensitive configuration."])}\n\n**Path 2: ${rng.pick(["Session Handling Weakness", "CORS Exploitation", "Cache Poisoning", "Rate Limit Bypass"])}**\n${rng.pick(["Session tokens don't rotate after privilege changes, allowing session fixation attacks.", "The CORS configuration reflects arbitrary origins which could enable cross-origin data theft.", "Unkeyed headers in the CDN cache could be poisoned to serve malicious content to all users.", "Rate limiting can be bypassed by rotating source IPs or using concurrent requests."])}\n\n**Chaining potential:** Combining the primary finding with ${rng.pick(["the session handling weakness", "the CORS misconfiguration", "the exposed debug endpoint", "the API version downgrade"])} would escalate the impact from ${rng.pick(["data disclosure to account takeover", "single-user impact to application-wide compromise", "authenticated access to unauthenticated exploitation", "information disclosure to remote code execution"])}.`,
+**Contract:** \`${profile.contractName}.sol\` | **Function:** \`${affectedFunc.name}()\` | **Lines:** ${lineRefStart}-${lineRefEnd}
 
-    `### Post-Exploitation Impact Assessment\n\nAssuming an attacker successfully exploits the ${scenario.subcategory} vulnerability on ${domain}:\n\n**Immediate capabilities:**\n${rng.pickN(["- Read all user records in the ${profile.databases.name} database (${rng.int(1000, profile.userCount).toLocaleString()} records)", "- Access administrative functions and modify application configuration", "- Exfiltrate API keys and internal service credentials from environment variables", "- Execute commands on the application server as the service user", "- Access internal network services reachable from the application server", "- Read application source code and identify additional vulnerabilities", "- Intercept other users' sessions and sensitive data in transit", "- Modify database records including user permissions and financial data"], rng.int(3, 5)).join("\n")}\n\n**Persistence mechanisms an attacker could establish:**\n${rng.pickN(["- Create a backdoor admin account in the application database", "- Plant a web shell in a static assets directory", "- Add an SSH key for remote access to the server", "- Modify a cron job to maintain callback access", "- Inject a persistent XSS payload that survives application updates", "- Create an API key with elevated privileges", "- Modify the application code to include a subtle backdoor"], rng.int(2, 4)).join("\n")}\n\n**Recommended incident response actions:**\n1. ${rng.pick(["Review access logs for the past 90 days for indicators of prior exploitation", "Scan the application files for unauthorized modifications or web shells", "Rotate all credentials that could have been exposed through this vulnerability", "Notify affected users if evidence of data access is found"])}`,
-  ];
+**CVSS 3.1:** \`${cvssVector}\` → Score: ${severityNum} (${severityLabel})
+**SWC:** ${swcs.join(", ")} | **CWE:** ${cwes.join(", ")}
+**Chain:** ${rng.pick(["Ethereum", "Arbitrum", "Optimism", "Base"])} (Chain ID: ${profile.chainId}) | **Solidity:** v${profile.solidityVersion}
 
-  return rng.pick(analyses);
+### Vulnerability
+
+The \`${affectedFunc.name}()\` function (line ${lineRefStart}) is missing ${profile.missingCheck}. The function performs ${rng.pick(["an external call before updating the relevant state", "no access control check on the caller", "an unchecked arithmetic operation that can overflow", "a division before multiplication causing precision loss", "signature verification without replay protection"])} at line ${rng.int(lineRefStart + 2, lineRefEnd - 5)}.
+
+Key state variables involved:
+${profile.stateVariables.slice(0, 4).map(sv => `- \`${sv.name}\` (\`${sv.type}\`, ${sv.visibility}, slot ${rng.int(0, 25)})`).join("\n")}
+
+### Reproduction Steps
+
+1. **Setup:** Deploy \`${profile.contractName}\` on a ${profile.pocType === "fork" ? "mainnet fork at block " + rng.int(19000000, 20000000) : "local testnet"} with ${profile.tvl} TVL simulation.
+2. **Precondition:** ${rng.pick(["Ensure the caller is not the owner or authorized address", "Fund the attacker address with a minimal amount of ETH", "Set up the oracle to return a manipulated price", "Prepare a valid but reusable ECDSA signature"])}
+3. **Exploit:** Call \`${affectedFunc.name}(${affectedFunc.params.join(", ")})\` ${rng.pick(["with crafted input parameters", "from an unauthorized address", "multiple times in the same transaction", "with a specially crafted calldata payload"])}.
+4. **Verify:** Assert that ${rng.pick(["the attacker's balance has increased beyond their deposit", "the total supply has been inflated without authorization", "the contract state has been corrupted", "the attacker gained unauthorized access"])} using \`assertGt\`.
+
+### Foundry Test Output
+
+\`\`\`solidity
+${foundryTest}
+\`\`\`
+
+### Gas Analysis
+
+${gasAnalysis}
+
+### Attack Chain
+
+${attackChainLines}
+
+### Impact
+
+${impact.impactDescription}
+
+- **Max Extractable Value:** ${impact.dollarAmount}
+- **Required Capital:** ${profile.requiresCapital > 0 ? `${profile.requiresCapital.toLocaleString()} USD` : "None"}
+- **Gas Cost of Attack:** ~${rng.int(500000, 5000000).toLocaleString()} gas (${rng.int(15, 120)} ETH at current prices)
+
+### Remediation
+
+\`\`\`solidity
+${generateSecureCodeFix(vulnType, rng)}
+\`\`\`
+
+**Fix Details:**
+1. Add ${profile.missingCheck} to the \`${affectedFunc.name}()\` function signature.
+2. Reorder operations to follow the ${vulnType === "reentrancy" ? "Checks-Effects-Interactions pattern" : "principle of least privilege"} — update state before external calls.
+3. Add invariant tests: \`invariant totalSupplyConsistent()\` to prevent regression.
+4. Run \`forge test --match-contract ${profile.contractName}Test -vvv\` to verify no tests break after the fix.`;
+}
+
+/* ============================================================
+   Style 3: Concise Bug Bounty Style
+   ============================================================ */
+function generateBugBountyReport(
+  scenario: ScenarioTemplate,
+  profile: ContractProfile,
+  severity: string,
+  severityLabel: string,
+  severityNum: number,
+  cvssVector: string,
+  swcs: string[],
+  cwes: string[],
+  vulnType: string,
+  impact: { dollarAmount: string; impactDescription: string },
+  attackChainLines: string,
+  rng: SeededRNG,
+): string {
+  const affectedFunc = profile.externalFunctions.length > 0 ? rng.pick(profile.externalFunctions) : { name: rng.pick(["stake", "withdraw", "claim", "mint"]), visibility: "external", modifiers: [], params: [] };
+  const minimalPoC = generateMinimalPoC(profile, vulnType, rng);
+
+  return `**${scenario.title}**
+
+| Field | Value |
+|-------|-------|
+| Severity | ${severity} |
+| CVSS 3.1 | ${severityNum} (${cvssVector}) |
+| SWC | ${swcs.join(", ")} |
+| CWE | ${cwes.join(", ")} |
+| Target | \`${profile.contractName}\` @ \`0x${profile.contractAddress.slice(0, 10)}...\` |
+| Function | \`${affectedFunc.name}()\` |
+| TVL | ${profile.tvl} |
+
+**Brief:** ${variateText(swcDescription(vulnType), profile.protocolName, profile as any)}
+
+**PoC:**
+
+\`\`\`solidity
+${minimalPoC}
+\`\`\`
+
+**Attack Chain:**
+
+${scenario.attack_phases.map((p, i) => `${i + 1}. ${p.phase}`).join(" → ")}
+
+**Impact:** ${impact.impactDescription} Estimated ${impact.dollarAmount} at risk from ${profile.tvl} TVL.
+
+**Fix:** Add ${profile.missingCheck} to \`${affectedFunc.name}()\`:
+
+\`\`\`solidity
+${generateSecureCodeFix(vulnType, rng)}
+\`\`\``;
+}
+
+/* ============================================================
+   PoC code generators
+   ============================================================ */
+function generatePoCSolidity(scenario: ScenarioTemplate, profile: ContractProfile, vulnType: string, rng: SeededRNG): string {
+  const affectedFunc = profile.externalFunctions.length > 0 ? rng.pick(profile.externalFunctions) : { name: "stake", visibility: "external", modifiers: [], params: ["uint256 amount"] };
+
+  const pocTemplates: Record<string, () => string> = {
+    "reentrancy": () => `// Foundry PoC: Reentrancy on ${profile.contractName}.${affectedFunc.name}()
+function testReentrancyExploit() public {
+    // Deploy the vulnerable contract
+    ${profile.contractName} target = new ${profile.contractName}();
+    
+    // Deploy attacker contract with reentrancy callback
+    ReentrancyExploiter exploiter = new ReentrancyExploiter(address(target));
+    
+    // Attacker deposits initial funds
+    exploiter.deposit{value: 1 ether}();
+    
+    // Trigger the exploit — recursive withdraw
+    exploiter.exploit();
+    
+    // Verify: attacker drained more than they deposited
+    assertGt(address(exploiter).balance, 1 ether);
+}
+
+contract ReentrancyExploiter {
+    ${profile.contractName} public target;
+    bool private entered = false;
+    
+    constructor(address _target) {
+        target = ${profile.contractName}(_target);
+    }
+    
+    function deposit() external payable {
+        target.stake{value: msg.value}();
+    }
+    
+    function exploit() external {
+        target.withdraw(1 ether);
+    }
+    
+    // Callback — re-enter withdraw before state update
+    receive() external payable {
+        if (!entered && address(target).balance >= 1 ether) {
+            entered = true;
+            target.withdraw(1 ether);
+        }
+    }
+}`,
+    "unauthorized-mint": () => `// Foundry PoC: Unauthorized Mint on ${profile.contractName}
+function testUnauthorizedMint() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    address attacker = address(0xBEEF);
+    
+    uint256 initialSupply = target.totalSupply();
+    
+    // Attacker calls mint without authorization
+    vm.prank(attacker);
+    target.mint(attacker, 1_000_000e18);
+    
+    // Verify: supply inflated without authorization
+    assertGt(target.totalSupply(), initialSupply);
+    assertEq(target.balanceOf(attacker), 1_000_000e18);
+}`,
+    "access-control-bypass": () => `// Foundry PoC: Access Control Bypass on ${profile.contractName}
+function testAccessControlBypass() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    address attacker = makeAddr("attacker");
+    
+    // Attacker calls privileged function without role
+    vm.prank(attacker);
+    target.${affectedFunc.name}(${affectedFunc.params.map((_, i) => `param${i}`).join(", ")});
+    
+    // Verify: unauthorized state change occurred
+    assertTrue(target.${rng.pick(["paused()", "owner() == attacker", "feeRate() == type(uint256).max"])});
+}`,
+    "integer-overflow": () => `// Foundry PoC: Integer Overflow on ${profile.contractName}
+function testIntegerOverflow() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    
+    // Craft input that causes overflow
+    uint256 maxUint = type(uint256).max;
+    target.${affectedFunc.name}(maxUint, 1);
+    
+    // Verify: overflow caused wraparound
+    assertLt(target.${rng.pick(["totalSupply()", "balances(address(this))", "rewardIndex()"])}, maxUint);
+}`,
+    "rounding-precision": () => `// Foundry PoC: Rounding Precision on ${profile.contractName}
+function testRoundingExploit() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    
+    // Exploit rounding: deposit small amounts repeatedly
+    for (uint256 i = 0; i < 100; i++) {
+        target.${affectedFunc.name}(1);
+        target.${rng.pick(["withdraw", "claim", "redeem"])}(1);
+    }
+    
+    // Extracted excess through rounding accumulation
+    uint256 profit = address(this).balance;
+    assertGt(profit, 0, "Rounding error should accumulate");
+}`,
+    "signature-replay": () => `// Foundry PoC: Signature Replay on ${profile.contractName}
+function testSignatureReplay() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    (address signer, uint256 key) = makeAddrAndKey("signer");
+    
+    // Build valid signature
+    bytes32 digest = keccak256(abi.encodePacked(
+        "\\x19Ethereum Signed Message:\\n32",
+        keccak256(abi.encode(address(this), 1000e18, 1))
+    ));
+    (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+    bytes memory sig = abi.encodePacked(r, s, v);
+    
+    // Use signature once
+    target.${affectedFunc.name}(1000e18, 1, sig);
+    
+    // Replay the SAME signature
+    target.${affectedFunc.name}(1000e18, 2, sig);
+    
+    // Verify: replay succeeded (should have been blocked)
+    assertEq(target.${rng.pick(["balanceOf(address(this))", "nonceOf(address(this))"])}, 2000e18);
+}`,
+    "storage-collision": () => `// Foundry PoC: Storage Collision on ${profile.contractName}
+function testStorageCollision() public {
+    // Deploy implementation and proxy
+    Implementation impl = new Implementation();
+    ${profile.contractName} proxy = ${profile.contractName}(
+        address(new ERC1967Proxy(address(impl), ""))
+    );
+    
+    // Slot 0 in proxy overlaps with slot 0 in implementation
+    // Proxy's 'initialized' flag corrupts impl's 'owner'
+    vm.store(address(proxy), bytes32(uint256(0)), bytes32(uint256(1)));
+    
+    // Verify: storage collision allows attacker to become owner
+    assertEq(proxy.owner(), address(this));
+}`,
+    "oracle-manipulation": () => `// Foundry PoC: Oracle Manipulation on ${profile.contractName}
+function testOracleManipulation() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    MockOracle oracle = new MockOracle();
+    target.setOracle(address(oracle));
+    
+    // Manipulate oracle price
+    oracle.setPrice(1_000_000e18); // Inflate price 1000x
+    
+    // Borrow against inflated collateral
+    target.${affectedFunc.name}(1e18);
+    
+    // Verify: borrowed more than collateral warrants
+    assertGt(target.${rng.pick(["debtOf(address(this))", "borrowedAmount()"])}, 1e18 * 100);
+}`,
+  };
+
+  const generator = pocTemplates[vulnType];
+  return generator ? generator() : `// Foundry PoC: ${vulnType} on ${profile.contractName}.${affectedFunc.name}()
+function test${vulnType.split("-").map(s => s[0].toUpperCase() + s.slice(1)).join("")}Exploit() public {
+    ${profile.contractName} target = new ${profile.contractName}();
+    
+    // Setup exploit conditions
+    ${rng.pick([
+      `address attacker = makeAddr("attacker");\n    vm.prank(attacker);`,
+      `vm.warp(block.timestamp + ${rng.int(1, 365)} days);`,
+      `deal(address(this), ${rng.int(1, 100)} ether);`,
+    ])}
+    
+    // Trigger vulnerability
+    target.${affectedFunc.name}(${affectedFunc.params.map((_, i) => `${rng.int(1, 100)}e18`).join(", ") || ""});
+    
+    // Verify exploit succeeded
+    assertTrue(${rng.pick([
+      "address(this).balance > initialBalance",
+      "target.totalSupply() > initialSupply",
+      "target.owner() == attacker",
+      "target.paused() == true",
+    ])});
+}`;
+}
+
+function generateMinimalPoC(profile: ContractProfile, vulnType: string, rng: SeededRNG): string {
+  const affectedFunc = profile.externalFunctions.length > 0 ? rng.pick(profile.externalFunctions) : { name: "stake", visibility: "external", modifiers: [], params: [] };
+
+  const minimal: Record<string, string> = {
+    "reentrancy": `// Call withdraw() — recursive call via receive()
+attacker.withdraw(); // drains ${rng.int(100, 10000)}x deposit
+require(attacker.balance > 100 ether);`,
+    "unauthorized-mint": `// No modifier — anyone can mint
+target.mint(attacker, 1_000_000e18);
+assertGt(target.totalSupply(), initialSupply);`,
+    "access-control-bypass": `// Missing access check
+vm.prank(attacker);
+target.${affectedFunc.name}();
+// State changed without authorization`,
+    "integer-overflow": `// Overflow: type(uint256).max + 1 = 0
+target.${affectedFunc.name}(type(uint256).max, 1);
+assertEq(target.balance(), 0); // wrapped`,
+    "rounding-precision": `// Exploit truncation: (1 * 1e18) / 3 = 333... (loss per call)
+for (uint i = 0; i < 100; i++) target.${affectedFunc.name}(1);
+assertGt(attacker.balance, 100 ether);`,
+    "signature-replay": `// Replay same sig — no nonce check
+target.${affectedFunc.name}(1000e18, sig);
+target.${affectedFunc.name}(2000e18, sig); // same sig, 2nd time succeeds`,
+    "oracle-manipulation": `// Flash loan → manipulate spot price → borrow
+oracle.setPrice(1_000_000e18);
+target.borrow(1e18); // over-collateralized at fake price`,
+  };
+
+  return minimal[vulnType] || `// Exploit ${vulnType}
+target.${affectedFunc.name}(${affectedFunc.params.map((_, i) => `arg${i}`).join(", ") || ""});
+assertGt(attacker.${rng.pick(["balance", "balanceOf()", "tokensWithdrawn()"])}, initial);`;
+}
+
+/* ============================================================
+   Foundry test output generator
+   ============================================================ */
+function generateFoundryTest(scenario: ScenarioTemplate, profile: ContractProfile, vulnType: string, rng: SeededRNG): string {
+  const affectedFunc = profile.externalFunctions.length > 0 ? rng.pick(profile.externalFunctions) : { name: "stake", visibility: "external", modifiers: [], params: [] };
+  const gasUsed = rng.int(150000, 2500000);
+  const blockNumber = rng.int(19000000, 20500000);
+
+  return `// forge test --match-contract ${profile.contractName}Test -vvv
+// Foundry ${rng.pick(["v0.2.0", "v0.1.5", "v0.2.2"])} | solc ${profile.solidityVersion}
+
+contract ${profile.contractName}Test is Test {
+    ${profile.contractName} public target;
+    address public attacker;
+    
+    function setUp() public {
+        target = new ${profile.contractName}();
+        attacker = makeAddr("attacker");
+        deal(attacker, ${rng.int(10, 1000)} ether);
+    }
+    
+    function test_${vulnType.replace(/-/g, "_")}_exploit() public {
+        uint256 initial = address(this).balance;
+        
+        // ${rng.pick(["Step 1: Setup attack conditions", "Step 1: Prepare exploit calldata", "Step 1: Fund attacker contract"])}
+        ${rng.pick([
+          `vm.prank(attacker);`,
+          `vm.warp(block.timestamp + ${rng.int(1, 7)} days);`,
+          `vm.mockCall(address(target.oracle()), abi.encodeWithSelector(0x...), abi.encode(1_000_000e18));`,
+        ])}
+        
+        // ${rng.pick(["Step 2: Execute the vulnerable function", "Step 2: Call the target function", "Step 2: Trigger the exploit"])}
+        target.${affectedFunc.name}(${affectedFunc.params.map((p, i) => {
+          if (p.includes("uint256")) return `${rng.int(1, 1000)}e18`;
+          if (p.includes("address")) return `address(this)`;
+          if (p.includes("bytes")) return `hex""`;
+          return `"0"`;
+        }).join(", ") || ""});
+        
+        // ${rng.pick(["Step 3: Verify the exploit succeeded", "Step 3: Assert profit extracted"])}
+        uint256 profit = address(this).balance - initial;
+        assertGt(profit, 0, "Exploit should extract value");
+        emit log_named_uint("Profit extracted (wei)", profit);
+    }
+}
+
+// === Test Output ===
+// [PASS] test_${vulnType.replace(/-/g, "_")}_exploit() (gas: ${gasUsed.toLocaleString()})
+// Logs:
+//   Profit extracted (wei): ${rng.int(1e15, 1e20)}
+// 
+// Suite result: ok. 1 passed; 0 failed; 0 skipped
+// Ran 1 test for ${profile.contractName}Test: 1 passed
+// Finished in ${rng.int(1, 120)}ms
+// Block: ${blockNumber.toLocaleString()}`;
+}
+
+/* ============================================================
+   Gas analysis generator
+   ============================================================ */
+function generateGasAnalysis(vulnType: string, rng: SeededRNG): string {
+  const normalGas = rng.int(45000, 250000);
+  const exploitGas = normalGas + rng.int(50000, 1500000);
+
+  const analyses: Record<string, string> = {
+    "reentrancy": `- Normal \`${rng.pick(["withdraw", "claim", "redeem"])}()\`: ~${normalGas.toLocaleString()} gas
+- Exploited reentrant call: ~${exploitGas.toLocaleString()} gas (${((exploitGas / normalGas - 1) * 100).toFixed(0)}% overhead from recursion)
+- The gas overhead comes from repeated SSTORE/SLOAD operations on the same storage slot during recursive calls.`,
+    "oracle-manipulation": `- Normal price query: ~${normalGas.toLocaleString()} gas
+- Flash loan + price manipulation: ~${exploitGas.toLocaleString()} gas
+- The attack gas cost is dominated by the flash loan callback and multiple swap operations.`,
+  };
+
+  return analyses[vulnType] || `- Normal function call: ~${normalGas.toLocaleString()} gas
+- Exploited call: ~${exploitGas.toLocaleString()} gas
+- Gas differential: +${(exploitGas - normalGas).toLocaleString()} gas from ${rng.pick(["additional SSTORE operations", "external contract calls", "loop iterations", "storage reads"])}
+
+The gas cost is ${rng.pick(["well within the block gas limit, making the exploit practical", "low enough to be profitable even at high gas prices", "dominated by external calls rather than computation"])} at current ${rng.pick(["15", "25", "50"])} gwei.`;
+}
+
+/* ============================================================
+   Public API: generateSecureCodeFix
+   ============================================================ */
+export function generateSecureCodeFix(vulnType: string, rng: SeededRNG): string {
+  const fixes: Record<string, string[]> = {
+    "reentrancy": [
+      `// Fix: Apply Checks-Effects-Interactions pattern + ReentrancyGuard
+contract ${rng.pick(["FixedContract", "SecureContract"])} is ReentrancyGuard {
+    mapping(address => uint256) public balances;
+
+    function withdraw(uint256 amount) external nonReentrant {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        
+        // EFFECTS: Update state BEFORE external call
+        balances[msg.sender] -= amount;
+        
+        // INTERACTIONS: External call last
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+    }
+}`,
+      `// Fix: ReentrancyGuard with mutex
+contract FixedContract {
+    uint256 private _status;
+    mapping(address => uint256) public balances;
+
+    modifier nonReentrant() {
+        require(_status == 0, "Reentrant call");
+        _status = 1;
+        _;
+        _status = 0;
+    }
+
+    function withdraw(uint256 amount) external nonReentrant {
+        require(balances[msg.sender] >= amount);
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+}`,
+    ],
+    "unauthorized-mint": [
+      `// Fix: Add onlyNewEpoch or role-based access control
+contract FixedContract is AccessControl {
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    uint256 public lastMintEpoch;
+
+    modifier onlyNewEpoch() {
+        uint256 currentEpoch = block.timestamp / 1 weeks;
+        require(currentEpoch > lastMintEpoch, "Already minted this epoch");
+        _;
+    }
+
+    function mint(address to, uint256 amount) 
+        external 
+        onlyRole(MINTER_ROLE) 
+        onlyNewEpoch 
+    {
+        lastMintEpoch = block.timestamp / 1 weeks;
+        _mint(to, amount);
+    }
+}`,
+      `// Fix: Only owner can mint with rate limit
+contract FixedContract is Ownable {
+    uint256 public constant MAX_MINT_PER_EPOCH = 1_000_000e18;
+    uint256 public mintedThisEpoch;
+    uint256 public epochTimestamp;
+
+    function mint(address to, uint256 amount) external onlyOwner {
+        require(block.timestamp >= epochTimestamp + 1 weeks, "Wait for next epoch");
+        require(amount <= MAX_MINT_PER_EPOCH, "Exceeds epoch cap");
+        
+        if (block.timestamp > epochTimestamp + 1 weeks) {
+            epochTimestamp = block.timestamp;
+            mintedThisEpoch = 0;
+        }
+        mintedThisEpoch += amount;
+        _mint(to, amount);
+    }
+}`,
+    ],
+    "integer-overflow": [
+      `// Fix: Use Solidity 0.8+ built-in overflow checks or SafeMath
+pragma solidity ^0.8.0;
+
+contract FixedContract {
+    function safeCalculation(uint256 a, uint256 b) external pure returns (uint256) {
+        // Solidity 0.8+ automatically reverts on overflow
+        return a + b;
+    }
+
+    function safeMultiply(uint256 a, uint256 b) external pure returns (uint256) {
+        require(b == 0 || a <= type(uint256).max / b, "Overflow");
+        return a * b;
+    }
+}`,
+      `// Fix: For Solidity <0.8.0, use SafeMath
+pragma solidity ^0.7.6;
+
+import "@openzeppelin/contracts/math/SafeMath.sol";
+
+contract FixedContract {
+    using SafeMath for uint256;
+
+    function safeCalculation(uint256 a, uint256 b) external pure returns (uint256) {
+        return a.add(b); // Reverts on overflow
+    }
+}`,
+    ],
+    "rounding-precision": [
+      `// Fix: Multiply before divide to minimize truncation
+contract FixedContract {
+    function calculateShare(uint256 amount, uint256 total, uint256 reward) 
+        external 
+        pure 
+        returns (uint256) 
+    {
+        // WRONG: (amount / total) * reward  → truncates to 0
+        // CORRECT: (amount * reward) / total
+        return (amount * reward) / total;
+    }
+
+    function calculateShareWithPrecision(
+        uint256 amount,
+        uint256 total,
+        uint256 reward
+    ) external pure returns (uint256) {
+        // Use higher precision intermediate calculation
+        return (amount * reward * 1e18) / total;
+    }
+}`,
+      `// Fix: Accumulate rounding errors and distribute remainder
+contract FixedContract {
+    uint256 public remainder;
+
+    function distribute(uint256 total, uint256 recipients) external returns (uint256) {
+        uint256 share = (total + remainder) / recipients;
+        uint256 used = share * recipients;
+        remainder = (total + remainder) - used;
+        return share;
+    }
+}`,
+    ],
+    "signature-replay": [
+      `// Fix: Add nonce tracking and used signatures mapping
+contract FixedContract {
+    mapping(address => uint256) public nonces;
+    mapping(bytes32 => bool) public usedSignatures;
+
+    function executeWithSig(
+        address user,
+        uint256 amount,
+        uint256 nonce,
+        bytes calldata signature
+    ) external {
+        require(nonce == nonces[user], "Invalid nonce");
+        
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\\x19Ethereum Signed Message:\\n32",
+            keccak256(abi.encode(address(this), user, amount, nonce, block.chainid))
+        ));
+        
+        require(!usedSignatures[digest], "Signature already used");
+        
+        address signer = recoverSigner(digest, signature);
+        require(signer == user, "Invalid signature");
+        
+        usedSignatures[digest] = true;
+        nonces[user]++;
+        
+        _execute(user, amount);
+    }
+}`,
+    ],
+    "storage-collision": [
+      `// Fix: Use UUPSUpgradeable with proper storage layout
+contract FixedContract is UUPSUpgradeable, AccessControlUpgradeable {
+    // Use a storage prefix to avoid collisions
+    bytes32 private constant STORAGE_SLOT = keccak256("FixedContract.storage.v1");
+
+    struct Storage {
+        address owner;
+        uint256 totalSupply;
+        mapping(address => uint256) balances;
+        bool initialized;
+    }
+
+    function _getStorage() internal pure returns (Storage storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly { $.slot := slot }
+    }
+
+    function initialize() external initializer {
+        __AccessControl_init();
+        Storage storage s = _getStorage();
+        s.owner = msg.sender;
+        s.initialized = true;
+    }
+}`,
+      `// Fix: Reserve storage slots in base contract
+abstract contract BaseStorage {
+    // Reserve slots to prevent collision with future upgrades
+    uint256[50] private __gap;
+}
+
+contract FixedContract is BaseStorage, OwnableUpgradeable {
+    uint256 public totalSupply;
+    mapping(address => uint256) public balances;
+    
+    // Always add new variables at the END
+    // Never remove or reorder existing variables
+}`,
+    ],
+    "oracle-manipulation": [
+      `// Fix: Use Time-Weighted Average Price (TWAP) instead of spot price
+contract FixedContract {
+    IUniswapV3Pool public constant pool = IUniswapV3Pool(0x...);
+
+    function getSafePrice() public view returns (uint256) {
+        // Use TWAP over 30 minutes — resistant to flash loan manipulation
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 1800; // 30 min ago
+        secondsAgos[1] = 0;    // now
+
+        (int56[] memory tickCumulatives, ) = pool.observe(secondsAgos);
+        int24 tick = int24((tickCumulatives[1] - tickCumulatives[0]) / int56(uint56(1800)));
+        
+        return uint256(uint160(SqrtPriceMath.getSqrtRatioAtTick(tick)));
+    }
+
+    function borrow(uint256 amount) external {
+        uint256 price = getSafePrice();
+        require(price > 0, "Invalid price");
+        // ... use TWAP price for collateral calculation
+    }
+}`,
+    ],
+    "logic-error": [
+      `// Fix: Correct the business logic with proper invariant checks
+contract FixedContract {
+    function process(uint256 amount) external {
+        require(amount > 0, "Amount must be positive");
+        require(amount <= maxAllowed(), "Exceeds limit");
+        
+        // Correct logic flow:
+        // 1. Validate inputs
+        // 2. Check invariants
+        // 3. Update state
+        // 4. Emit events
+        
+        uint256 before = stateVariable;
+        _unsafeProcess(amount);
+        require(stateVariable >= before, "Invariant violated");
+        
+        emit Processed(msg.sender, amount);
+    }
+}`,
+    ],
+    "fee-bypass": [
+      `// Fix: Enforce fee collection at the protocol level
+contract FixedContract {
+    uint256 public constant FEE_BPS = 25; // 0.25%
+    uint256 public constant FEE_DENOMINATOR = 10000;
+
+    function execute(uint256 amount) external {
+        uint256 fee = (amount * FEE_BPS) / FEE_DENOMINATOR;
+        require(fee > 0, "Fee too small");
+        
+        uint256 netAmount = amount - fee;
+        
+        // Collect fee BEFORE processing
+        feeToken.transferFrom(msg.sender, treasury, fee);
+        
+        // Process net amount
+        _process(netAmount);
+    }
+}`,
+    ],
+    "initialization-missing": [
+      `// Fix: Add initializer with proper access control
+contract FixedContract is Initializable, OwnableUpgradeable {
+    function initialize(address _admin) external initializer {
+        __Ownable_init();
+        transferOwnership(_admin);
+        _setupRole(DEFAULT_ADMIN_ROLE, _admin);
+    }
+
+    // Disable constructor for upgradeable contracts
+    constructor() {
+        _disableInitializers();
+    }
+}`,
+    ],
+    "timelock-bypass": [
+      `// Fix: Enforce timelock on all privileged operations
+contract FixedContract {
+    ITimelock public immutable timelock;
+
+    modifier onlyTimelock() {
+        require(msg.sender == address(timelock), "Only timelock");
+        _;
+    }
+
+    function executeUpgrade(address newImplementation) external onlyTimelock {
+        _upgradeTo(newImplementation);
+    }
+
+    // All governance actions must go through timelock
+    function propose(address target, uint256 value, bytes calldata data) external {
+        require(msg.sender == address(governance), "Only governance");
+        timelock.scheduleTransaction(target, value, data, delay);
+    }
+}`,
+    ],
+    "cross-chain-replay": [
+      `// Fix: Include chainId and per-chain nonce in message hash
+contract FixedContract {
+    mapping(uint256 => mapping(address => uint256)) public chainNonces;
+
+    function executeCrossChain(
+        bytes calldata data,
+        uint256 sourceChainId,
+        bytes calldata signature
+    ) external {
+        // Bind to current chain to prevent replay
+        uint256 nonce = chainNonces[sourceChainId][msg.sender]++;
+        
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\\x19Ethereum Signed Message:\\n32",
+            keccak256(abi.encode(data, sourceChainId, block.chainid, nonce))
+        ));
+        
+        address signer = recoverSigner(digest, signature);
+        require(signer != address(0), "Invalid signature");
+        
+        _execute(data, signer);
+    }
+}`,
+    ],
+    "dos-griefing": [
+      `// Fix: Add gas limits and pull-over-push pattern
+contract FixedContract {
+    mapping(address => uint256) public pendingWithdrawals;
+
+    // Pull pattern — recipient claims their own funds
+    function claim() external {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "Nothing to claim");
+        pendingWithdrawals[msg.sender] = 0;
+        payable(msg.sender).transfer(amount);
+    }
+
+    // Bounded loop — cap iterations
+    function processBatch(uint256 maxItems) external {
+        uint256 limit = maxItems > 50 ? 50 : maxItems;
+        for (uint256 i = 0; i < limit; i++) {
+            _process(i);
+        }
+    }
+}`,
+    ],
+    "mev-front-running": [
+      `// Fix: Commit-reveal pattern to prevent front-running
+contract FixedContract {
+    mapping(bytes32 => bool) public commitments;
+
+    function commit(bytes32 commitment) external {
+        require(!commitments[commitment], "Already committed");
+        commitments[commitment] = true;
+    }
+
+    function reveal(
+        uint256 amount,
+        address target,
+        bytes32 salt
+    ) external {
+        bytes32 commitment = keccak256(abi.encodePacked(amount, target, salt));
+        require(commitments[commitment], "No matching commitment");
+        
+        commitments[commitment] = false;
+        _execute(amount, target);
+    }
+}`,
+    ],
+    "decimal-mismatch": [
+      `// Fix: Explicitly read and use token decimals
+contract FixedContract {
+    IERC20 public token;
+    uint8 public tokenDecimals;
+
+    function initialize(address _token) external initializer {
+        token = IERC20(_token);
+        // Read actual decimals — never hardcode
+        try IERC20Metadata(_token).decimals() returns (uint8 d) {
+            tokenDecimals = d;
+        } catch {
+            tokenDecimals = 18; // Safe default
+        }
+    }
+
+    function calculate(uint256 amount) external view returns (uint256) {
+        // Scale to 18 decimals for internal math
+        if (tokenDecimals < 18) {
+            amount *= 10 ** (18 - tokenDecimals);
+        } else if (tokenDecimals > 18) {
+            amount /= 10 ** (tokenDecimals - 18);
+        }
+        return amount;
+    }
+}`,
+    ],
+  };
+
+  const options = fixes[vulnType];
+  if (options && options.length > 0) {
+    return rng.pick(options);
+  }
+
+  // Generic fallback
+  return `// Fix for ${vulnType}
+contract FixedContract {
+    // Add proper validation and access control
+    function securedFunction() external {
+        require(msg.sender != address(0), "Invalid caller");
+        // Implement the fix for ${vulnType}
+        _applyFix();
+    }
+}`;
 }

@@ -2,7 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { listAvailableScenarios } from "../generators/v1-generator.js";
-import { PENTESTING_TOOLS } from "../schemas/tools/index.js";
+import { SMARTCONTRACT_TOOLS } from "../schemas/tools/index.js";
 
 export function registerResources(server: McpServer) {
   server.resource(
@@ -28,7 +28,7 @@ export function registerResources(server: McpServer) {
         contents: [{
           uri: uri.href,
           mimeType: "application/json",
-          text: JSON.stringify(PENTESTING_TOOLS.map(t => ({
+          text: JSON.stringify(SMARTCONTRACT_TOOLS.map(t => ({
             name: t.name,
             category: t.category,
             description: t.description,

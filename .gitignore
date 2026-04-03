@@ -7,3 +7,6 @@ datasets/*.zip
 *.tgz
 .env
 .claude/
+*.md
+SmartContract-Reports/
+solodit_data/
