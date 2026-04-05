@@ -8,5 +8,14 @@ datasets/*.zip
 .env
 .claude/
 *.md
-SmartContract-Reports/
 solodit_data/
+test_model.py
+.flash/
+.runpod/
+serverless/*
+flash.py
+space_app.py
+.qwen/settings.json
+.qwen/settings.json.orig
+__pycache__/flash.cpython-313.pyc
+nohup.out
